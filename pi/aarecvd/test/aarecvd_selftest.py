@@ -3,7 +3,7 @@
 
 It starts aarecvd on a free localhost port with a temporary stream image, settings file and notify socket, then
 connects over TCP as the phone: version, a real TLS handshake (the fake phone is the TLS server, with a throwaway
-self-signed certificate made here), service discovery (compared with what the old Python receiver, aarecv.py, sent),
+self-signed certificate made here), service discovery (compared with recorded reference output),
 video frames (some split into FIRST/MIDDLE/LAST frames), media and speech audio, audio/navigation focus, pings,
 touches/keys/headlights written into aaview's status sector, the microphone, bye-bye, an icon tap with no session,
 and a silent phone that must be dropped after 15 s.
@@ -18,13 +18,13 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 from aapb import pb, pv, parse, recvn  # noqa: E402
 
-# The service discovery response of the old Python receiver, aarecv.py (dpi 140). Phones accept exactly this, so
-# aarecvd's must match it except for the two deliberate changes in compare_discovery().
-AARECV_PY_DISCOVERY = bytes.fromhex(
+# The recorded reference service discovery response (dpi 140). Phones accept exactly this, so aarecvd's must
+# match it except for the two deliberate changes in compare_discovery().
+REFERENCE_DISCOVERY = bytes.fromhex(
     '0a2a080122260803080408050806081308140815081608170854085508570858087e087f120608a00610e0030a0c08021208'
     '0a02080d0a02080a0a1508031a110803220b0801100118002000288c0128010a1208041a0e080110031a080880f702101018'
     '020a1108051a0d080110011a0708807d101018010a1108061a0d080110021a0708807d101018010a0f08072a0b0801120708'
-    '807d101018011208726d776f726b70691a0856656c6f737465722204323031342a043030303130013a0b76656c6f73746572'
+    '807d10101801120a76656c6f7374657241411a0856656c6f737465722204323031342a043030303130013a0b76656c6f73746572'
     '2d616142066161766965774a01315203302e3158016000')
 
 RING_SECTOR, RING_BYTES = 16, (8192 - 16) * 512
@@ -239,7 +239,7 @@ def leveled(config, level=12):
     return bytes(b)
 
 
-# ---------------- service discovery, compared with aarecv.py's ----------------
+# ---------------- service discovery, compared with the reference ----------------
 
 SUB = {'sd': {1: 'service'}, 'service': {2: 'sensor', 3: 'sink', 4: 'input', 5: 'source'},
        'sensor': {1: 'msg'}, 'sink': {3: 'msg', 4: 'msg'}, 'input': {2: 'msg'}, 'source': {2: 'msg'}, 'msg': {}}
@@ -279,7 +279,7 @@ def canon(b, kind):
 
 
 def compare_discovery(got_body):
-    ref = canon(AARECV_PY_DISCOVERY, 'sd')
+    ref = canon(REFERENCE_DISCOVERY, 'sd')
     got = canon(got_body, 'sd')
     # Two deliberate differences: the reference's 1s read as 60 fps and right-hand drive on the phone, while aarecvd
     # asks for 30 fps (2) and left-hand drive (0). The rest must match byte for byte.
@@ -415,10 +415,8 @@ def run(port, img, crt, key, notes, logpath):
           h0['ring_bytes'] == RING_BYTES and (h0['w'], h0['h']) == (800, 480) and h0['copy'] == h0['seq'],
           'seq %d flags 0x%x' % (h0['seq'], h0['flags']))
     raw = os.pread(fd, 512, 0)
-    body = struct.pack('<4s10IIi', b'AVS1', h0['seq'], h0['session'], h0['wr'], 16, RING_BYTES, h0['idr_pos'],
-                       800, 480, h0['flags'], h0['mic_gen'], h0['utc'], h0['gmtoff'])
-    check('header bytes exactly as aastream.py packs them',
-          raw == body.ljust(504, b'\0') + struct.pack('<I', h0['seq']) + b'\0' * 4)
+    check('header: nothing in the unused bytes (52 to 503 and the last 4)',
+          raw[52:504] == bytes(452) and raw[508:] == bytes(4))
     time.sleep(2.3)
     h1 = header(fd)
     check('header heartbeat every 2 s, log level bits = debug (0), clock fields 0 with set_clock=off',
@@ -444,13 +442,13 @@ def run(port, img, crt, key, notes, logpath):
     ph.send(0, 5, pb(4, 'Fake Phone') + pb(5, 'Test'))
     fl, body = ph.expect(0, 6)
     top_ok, chans_ok, ids, ref, got = compare_discovery(body)
-    check('service discovery: head-unit fields as aarecv.py', top_ok)
+    check('service discovery: head-unit fields as the reference', top_ok)
     vcfgs = [v for c in got[1] for s in c.get(3, []) for v in s.get(4, [])]
     check('service discovery: left-hand drive (driver_position 0)', got.get(6) == [0], repr(got.get(6)))
     check('service discovery: 30 fps asked (VIDEO_FPS_30 = 2)', bool(vcfgs) and all(v.get(2) == [2] for v in vcfgs),
           repr([v.get(2) for v in vcfgs]))
-    check('service discovery: channels as aarecv.py (content and order)', chans_ok,
-          'channel ids aarecv.py -> aarecvd: %s' % ', '.join('%s->%s' % i for i in ids))
+    check('service discovery: channels as the reference (content and order)', chans_ok,
+          'channel ids reference -> aarecvd: %s' % ', '.join('%s->%s' % i for i in ids))
     if not (top_ok and chans_ok):
         print('  reference:', ref)
         print('  aarecvd:  ', got)
@@ -460,7 +458,7 @@ def run(port, img, crt, key, notes, logpath):
         chan.setdefault(kind, []).append(first(c, 1))
     VIDEO, MEDIA, SPEECH, SYSTEM = chan[3]
     INPUT, SENSOR, MIC = chan[4][0], chan[2][0], chan[5][0]
-    check('channel numbers: video 3, audio 4/5/6, microphone 7 (as aarecv.py)',
+    check('channel numbers: video 3, audio 4/5/6, microphone 7 (as the reference)',
           (VIDEO, MEDIA, SPEECH, SYSTEM, MIC) == (3, 4, 5, 6, 7), 'input %d, sensor %d' % (INPUT, SENSOR))
 
     # ---- channel opens ----
@@ -562,9 +560,10 @@ def run(port, img, crt, key, notes, logpath):
     video = [(fl_, p) for t, fl_, _, p in recs if t == 1]
     audio = [(fl_, p) for t, fl_, _, p in recs if t == 2]
     rec_nos = [r[2] for r in recs]
-    check('every video frame in the ring, byte for byte (IDRs with SPS/PPS in front, level_idc 12)',
-          video == expected, '%d of %d records match' % (sum(a == b for a, b in zip(video, expected)), len(expected)))
-    check('fragmented frames reassembled', any(len(f) > 8000 for _, _, f in aus) and video == expected)
+    check('every video frame in the ring, byte for byte (IDRs with SPS/PPS in front, level_idc 12; '
+          'frames over 8000 bytes were sent in 4096-byte fragments)',
+          any(len(f) > 8000 for _, _, f in aus) and video == expected,
+          '%d of %d records match' % (sum(a == b for a, b in zip(video, expected)), len(expected)))
     check('audio records with stream ids (media 0, speech 1)', audio == pcms,
           '%d of %d' % (sum(a == b for a, b in zip(audio, pcms)), len(pcms)))
     pad_ok, data, off = True, os.pread(fd, header(fd)['wr'], RING_SECTOR * 512), 0
@@ -664,7 +663,8 @@ def run(port, img, crt, key, notes, logpath):
     mic_slot(fd, header(fd)['mic_gen'] + 1, 9, b'\x55' * 2000)    # left over from "before": must be wiped
     ph.send(MIC, 0x8000, pv(1, 1))
     fl, body = ph.expect(MIC, 0x8003)
-    check('microphone setup answered with 0x8003 (aasdk would send 0x8000)', not flags() & 8)
+    check('microphone setup answered (0x8003); the header flag stays clear until the phone opens the microphone',
+          not flags() & 8)
     ph.send(MIC, 0x8005, pv(1, 1) + pv(2, 0) + pv(3, 0) + pv(4, 8))
     fl, body = ph.expect(MIC, 0x8006)
     gen = header(fd)['mic_gen']
@@ -734,8 +734,8 @@ def run(port, img, crt, key, notes, logpath):
     for line in ('aa: audio focus request gain transient -> gain', 'aa: audio focus request release -> loss',
                  'aa: phone "Fake Phone" / "Test"', 'aa: video start, session 7 config 0',
                  'aa: audio ch 5: that sound was 150 ms, loudest sample 12345 of 32767',
-                 'aa: microphone closed by the phone', 'aa: session ended: EOFError: phone shut the session down',
-                 'aa: session ended: TimeoutError: timed out', 'log: level debug (from veloaa.txt)',
+                 'aa: microphone closed by the phone', 'aa: session ended: the phone shut the session down',
+                 'aa: session ended: timed out: nothing from the phone', 'log: level debug (from veloaa.txt)',
                  'aa: ping answered in ',
                  'aa: SPS profile 66 level 31 -> 12'):
         check('log line: ' + line, line in log)

@@ -3,8 +3,8 @@
 
 A pretend BlueZ (org.bluez on a private D-Bus daemon: profile and agent managers, the adapter hci0, a paired phone,
 a paired keyboard and an unpaired phone) stands in for bluetoothd; the program under test gets that bus as its
-system bus (DBUS_SYSTEM_BUS_ADDRESS). It has to do what the old Python receiver, `aarecv.py --bt-only`, did in the
-same scenario (recorded in AARECV_PY below): the profiles and agent it registers, what it sets on the adapter, the
+system bus (DBUS_SYSTEM_BUS_ADDRESS). It has to match the recorded reference behaviour for this
+scenario (REFERENCE below): the profiles and agent it registers, what it sets on the adapter, the
 start-up messages it sends the phone (byte for byte), what it refuses, when it connects, nudges, gives up, and how it
 exits. Then pairing from aaview's icon.
 
@@ -25,8 +25,8 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 import aapb  # noqa: E402  (pb / pv, recvn, the UUIDs and the port)
 
-# What the old Python receiver, aarecv.py --bt-only, did in this scenario. main() compares aarecvd against it.
-AARECV_PY = {
+# The recorded reference behaviour for this scenario. main() compares aarecvd against it.
+REFERENCE = {
     'registration': [
         ('RegisterProfile', '/veloaa/aaw', '4de17a00-52cb-11e6-bdf4-0800200c9a66',
          {'Name': ('String', 'AA Wireless'), 'Role': ('String', 'server'), 'Channel': ('UInt16', 22),
@@ -311,7 +311,7 @@ class Run:
 # ---------------- the scenario ----------------
 
 def scenario(kind, binary, bz, address, tmp):
-    """Returns what was seen, for comparing with what aarecv.py did."""
+    """Returns what was seen, for comparing with the recorded reference."""
     seen = {}
     print('\n== aarecvd --bt-only', flush=True)
     bz.devices[PHONE]['Connected'] = False
@@ -615,15 +615,15 @@ def main():
         cpp = scenario('cpp', binary, bz, address, tmp)
         cpp['pair'] = scenario_pair('cpp', binary, bz, address, tmp)
         scenario_hold('cpp', binary, bz, address, tmp)
-        print('\n== aarecvd against what aarecv.py did', flush=True)
-        py = AARECV_PY
+        print('\n== aarecvd against the recorded reference', flush=True)
+        ref = REFERENCE
         for key in ('registration', 'adapter_sets', 'agent', 'wifi_start', 'wifi_info', 'first_connects', 'nudge',
                     'inprogress', 'noreply_exit'):
-            check('same as aarecv.py: %s' % key, py.get(key) == cpp.get(key), (py.get(key), cpp.get(key)))
+            check('matches the reference: %s' % key, ref.get(key) == cpp.get(key), (ref.get(key), cpp.get(key)))
         for key in ('adapter_sets', 'agent', 'trusted'):
-            check('same as aarecv.py (--pair): %s' % key, py['pair'].get(key) == cpp['pair'].get(key),
-                  (py['pair'].get(key), cpp['pair'].get(key)))
-        print('\n  memory after start-up: aarecvd %d KB (aarecv.py: about 30 MB)' % cpp['rss_kb'])
+            check('matches the reference (--pair): %s' % key, ref['pair'].get(key) == cpp['pair'].get(key),
+                  (ref['pair'].get(key), cpp['pair'].get(key)))
+        print('\n  memory after start-up: aarecvd %d KB' % cpp['rss_kb'])
     finally:
         loop.quit()
         daemon.terminate()
