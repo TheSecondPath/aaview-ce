@@ -72,6 +72,7 @@ def camera_loop():
 jobs = []                       # dicts: id, cmds, state, started, finished, output
 jobs_lock = threading.Lock()
 job_cv = threading.Condition(jobs_lock)
+last_id = 0
 
 
 def job_worker():
@@ -112,8 +113,10 @@ def add_job(cmds):
     cmds = [c.strip() for c in cmds if c.strip() and not c.strip().startswith('#')]
     if not cmds:
         return None
+    global last_id
     with job_cv:
-        j = {'id': len(jobs) + 1, 'cmds': cmds, 'state': 'queued', 'started': '', 'finished': '', 'output': ''}
+        last_id += 1
+        j = {'id': last_id, 'cmds': cmds, 'state': 'queued', 'started': '', 'finished': '', 'output': ''}
         jobs.append(j)
         del jobs[:-30]
         job_cv.notify_all()
