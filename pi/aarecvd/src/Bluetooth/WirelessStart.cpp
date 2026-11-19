@@ -7,6 +7,7 @@
  *  option) any later version. It is distributed WITHOUT ANY WARRANTY; see <http://www.gnu.org/licenses/>.
  */
 #include "WirelessStart.hpp"
+#include "../Config.hpp"
 #include "../Log.hpp"
 
 #include <fcntl.h>
@@ -16,7 +17,6 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
-#include <fstream>
 #include <map>
 #include <stdexcept>
 #include <thread>
@@ -24,11 +24,6 @@
 namespace aarecvd::bt {
 
 namespace {
-
-std::string trim(const std::string &s) {
-  auto b = s.find_first_not_of(" \t\r\n"), e = s.find_last_not_of(" \t\r\n");
-  return b == std::string::npos ? std::string() : s.substr(b, e - b + 1);
-}
 
 void varint(std::vector<uint8_t> &out, uint64_t n) {
   do {
@@ -127,16 +122,8 @@ std::string describe(const std::vector<uint8_t> &b) {
 }  // namespace
 
 std::optional<WifiInfo> readWifiInfo(const std::string &apConf) {
-  std::ifstream f(apConf);
   std::map<std::string, std::string> conf;
-  std::string ln;
-  while (f && std::getline(f, ln)) {
-    auto first = ln.find_first_not_of(" \t");
-    if (first == std::string::npos || ln[first] == '#') continue;
-    auto eq = ln.find('=');
-    if (eq == std::string::npos) continue;
-    conf[trim(ln.substr(0, eq))] = trim(ln.substr(eq + 1));
-  }
+  config::readKeyValues(apConf, [&conf](const std::string &key, const std::string &value) { conf[key] = value; });
   if (conf["ssid"].empty() || conf["key"].empty() || conf["ip"].empty()) return std::nullopt;
   return WifiInfo{conf["ssid"], conf["key"], conf["bssid"], conf["ip"]};
 }
