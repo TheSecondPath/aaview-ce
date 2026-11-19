@@ -11,6 +11,7 @@ Basic auth: user "veloaa", password from /etc/rmwork-web.pass (one line).
 """
 import base64, html, json, subprocess, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
 PORT = 8080
 PASS_FILE = '/etc/rmwork-web.pass'
@@ -225,6 +226,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path != '/job':
             return self.send_bytes(404, 'text/plain', b'not found')
+        # block posts from other sites (the browser sends the saved password with them)
+        if self.headers.get('Content-Type', '').split(';')[0].strip().lower() != 'application/json':
+            return self.send_bytes(400, 'text/plain', b'expected application/json')
+        origin = self.headers.get('Origin')
+        if origin is not None and urlsplit(origin).netloc != self.headers.get('Host', ''):
+            return self.send_bytes(403, 'text/plain', b'cross-site request')
         n = int(self.headers.get('Content-Length', '0') or 0)
         try:
             body = json.loads(self.rfile.read(min(n, 65536)) or b'{}')
