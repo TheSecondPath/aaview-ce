@@ -1,7 +1,7 @@
 # velosterAA (Beta builds)
 
 Wireless Android Auto on the factory head unit of a 2014 Hyundai Veloster (base, non-nav; LG, Windows CE 6, MIPS),
-using a Raspberry Pi Zero 2 W, however a pi that has 5ghz wifi may be preferable for performance and stability reasons. Most pi's will not have enough power from the USB port and will need a second power source in PWR.
+using a Raspberry Pi Zero 2W, however a pi that has 5ghz wifi may be preferable for performance and stability reasons. Most pi's will not have enough power from the USB port and will need a second power source in PWR.
 
 The Pi plugs into the car's USB port. To the head unit it is a USB stick, and to the phone it is a wireless Android Auto receiver.
 The process is Bluetooth handshake -> nudge to Wi-Fi access point for the session -> Android Auto over wifi.
@@ -32,7 +32,10 @@ Android phone <--All--> Pi Android Auto receiver <--video,audio,inputs--> USB St
 ## Install and run
 
 There are prebuilt releases now and I will make a more generalized version so this may work with any Windows CE headunit with 
-some addition pieces for each car or version. 
+some additional pieces for each car or version. 
+
+**Start at step 3** when using the prebuilt versions.
+
 To build the two halves yourself:
 
 ### 1. Build the receiver (any PC with Docker)
@@ -75,8 +78,7 @@ which builds MIPSII programs the head unit runs. `tools/ce-env.bat` finds them: 
 `install.sh` installs the packages it needs (it needs the internet once), switches the USB port to device mode and
 sets up the services. `make_release_stick.sh` writes the stick image the head unit will see.
 
-Use `sudo sh install.sh` without `--keep-wifi` if you want the Pi to stop joining your home Wi-Fi. Its one radio is
-then only for the phone, and SSH over Wi-Fi stops. To turn home Wi-Fi back on later, see
+Use `sudo sh install.sh` without `--keep-wifi` if you want the Pi to stop joining your home Wi-Fi. the wifi will be used only for the phone, and auto time updates and SSH over Wi-Fi stops working. On 2.4ghz wifi only devices like the Pi Zero 2w to do both. To turn home Wi-Fi back on later, see
 [Configurations](#configurations).
 
 ### 4. Set up the head unit (once)
