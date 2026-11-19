@@ -10,7 +10,7 @@ A small program on the head unit, started from the USB stick, shows the phone's 
 cabin microphone. Flow:
 
 Android phone<-All->Pi Android Auto receiver<-video,audio,inputs->USB Stick(RAM partition)<-audio,video,touch->aaview
-                                                                                          ↖︎-buttons,lights,signals->matmessage
+.........................................................................................↖︎-buttons,lights,signals->matmessage
 
 ## Features
 
