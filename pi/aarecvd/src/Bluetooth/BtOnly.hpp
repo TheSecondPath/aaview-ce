@@ -9,7 +9,7 @@
 // `aarecvd --bt-only`: the Bluetooth start-up on its own, in a process next to the session one, as OpenAuto runs
 // btservice next to autoapp. The session process sends one line per datagram on /run/veloaa/aarecv.sock:
 // "session up" or "session ended" (repeated every 10 s), "icon <state>" for a tap on aaview's icon with no session,
-// and "pair on" / "pair off" for a 3 s hold on it.
+// "pair on" / "pair off" for a 3 s hold on it, and "pair yes" for a tap on it while it shows the pairing code.
 #pragma once
 
 #include <string>

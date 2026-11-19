@@ -218,7 +218,7 @@ int main(int argc, char **argv) {
     AA_INFO("aa: icon tapped (state %d) with no phone session: %s", state,
             "telling aarecvd --bt-only to connect to the phone now");
     notifier->send("icon " + std::to_string(state));
-  }, [notifier](bool open) { notifier->send(open ? "pair on" : "pair off"); }, pairingFile);
+  }, [notifier](int x) { notifier->send(x == 2 ? "pair yes" : x ? "pair on" : "pair off"); }, pairingFile);
 
   service::ServiceFactory serviceFactory(ioService, options, ring, inputDevice);
   service::AndroidAutoEntityFactory entityFactory(ioService, options, serviceFactory, inputDevice);

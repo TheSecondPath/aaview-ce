@@ -402,20 +402,28 @@ std::vector<std::optional<std::pair<long long, long long>>> stamp(const std::vec
   return out;
 }
 
-bool apPeer(const std::string &peerIp, const std::string &confPath) {
-  std::ifstream f(confPath);
-  std::string ln, ip;
-  while (f && std::getline(f, ln)) {           // only ip= is used; nothing else in this file is read or shown
+void readKeyValues(const std::string &path,
+                   const std::function<void(const std::string &key, const std::string &value)> &use) {
+  auto trim = [](const std::string &s) {
+    auto b = s.find_first_not_of(" \t\r\n"), e = s.find_last_not_of(" \t\r\n");
+    return b == std::string::npos ? std::string() : s.substr(b, e - b + 1);
+  };
+  std::ifstream f(path);
+  std::string ln;
+  while (f && std::getline(f, ln)) {
     auto first = ln.find_first_not_of(" \t");
     if (first == std::string::npos || ln[first] == '#') continue;
     auto eq = ln.find('=');
     if (eq == std::string::npos) continue;
-    auto trim = [](std::string s) {
-      auto b = s.find_first_not_of(" \t\r\n"), e = s.find_last_not_of(" \t\r\n");
-      return b == std::string::npos ? std::string() : s.substr(b, e - b + 1);
-    };
-    if (trim(ln.substr(0, eq)) == "ip") ip = trim(ln.substr(eq + 1));
+    use(trim(ln.substr(0, eq)), trim(ln.substr(eq + 1)));
   }
+}
+
+bool apPeer(const std::string &peerIp, const std::string &confPath) {
+  std::string ip;
+  readKeyValues(confPath, [&ip](const std::string &key, const std::string &value) {
+    if (key == "ip") ip = value;               // only ip= is used; nothing else in this file is kept
+  });
   in_addr a{}, b{};
   if (ip.empty() || inet_pton(AF_INET, ip.c_str(), &a) != 1 || inet_pton(AF_INET, peerIp.c_str(), &b) != 1)
     return false;
@@ -428,6 +436,7 @@ HardKeys::HardKeys()
            {1, 0x7f}, {2, 0x7f}, {3, 0x7f}, {5, 0x7f}} {}
 
 void HardKeys::loadOverrides(const std::string &path) {
+  map_ = HardKeys().map_;                      // so removed lines go back to the default
   std::ifstream f(path);
   std::string ln;
   while (f && std::getline(f, ln)) {

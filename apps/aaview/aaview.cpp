@@ -22,7 +22,8 @@
  *                         "AVM1", u32 mic_gen, u32 seq (from 1), u32 nbytes, PCM 16 kHz 16-bit mono, seq copy at 2044
  *   ring      records, each 16-byte aligned: u32 len, u16 type (1 H.264 AU, 2 PCM audio, 9 bench filler), u16 flags
  *             (video: bit 0 IDR; audio: the stream, 0 media, 1 speech, 2 system), u32 pts_ms, u32 rec_no, then len
- *             payload bytes. wr / rd / idr_pos are cumulative byte counters.
+ *             payload bytes. wr / rd / idr_pos are cumulative byte counters. The ring is sectors 16 to 4111
+ *             (2 MiB); the rest is unused.
  * The Pi never writes past our rd (it drops frames up to the next IDR instead), so nothing we read is overwritten.
  *
  * aaview never ends on its own. Ending it by force leaves the decoder's memory behind until the head unit restarts,
@@ -2708,6 +2709,10 @@ static void iconTap(void)
         g_broken = FALSE;
         return;
     }
+    if (s == IC_PAIRING && g_pairKey) { /* the phone shows the same code: let it pair */
+        touchEvent(9, 2, 0);
+        return;
+    }
     if (g_phoneUp && projecting()) {    /* over the car's phone screen: back to Android Auto */
         phoneScreenOver(L"icon tapped");
         planeAgain();
@@ -3080,7 +3085,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int show)
             Sleep(500);                 /* an old copy may still be exiting */
         p = wcsrchr(exeDir, L'\\');
         if (p) *p = 0;
-        wsprintf(cl, L"logdir=%s %s", exeDir, cmdLine ? cmdLine : L"");
+        wsprintf(cl, L"logdir=\"%s\" %s", exeDir, cmdLine ? cmdLine : L"");
         if (!ok || !CreateProcess(TEMP_AAVIEW, cl, NULL, NULL, FALSE, 0, NULL, NULL, NULL, &pi))
             return 1;
         CloseHandle(pi.hThread);
@@ -3090,8 +3095,16 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int show)
     p = wcsrchr(exeDir, L'\\');
     if (p) *p = 0;
     if (cmdLine && !_wcsnicmp(cmdLine, L"logdir=", 7)) {
-        WCHAR *e = wcschr(cmdLine + 7, L' ');
-        lstrcpyn(exeDir, cmdLine + 7, e && e - cmdLine - 7 < MAX_PATH ? (int)(e - cmdLine - 7) + 1 : MAX_PATH);
+        /* the folder may be quoted, since it can have spaces */
+        WCHAR *s = cmdLine + 7, *e;
+        BOOL   quoted = *s == L'"';
+
+        if (quoted)
+            s++;
+        e = wcschr(s, quoted ? L'"' : L' ');
+        lstrcpyn(exeDir, s, e && e - s < MAX_PATH ? (int)(e - s) + 1 : MAX_PATH);
+        if (e && quoted)
+            e = wcschr(e, L' ');
         cmdLine = e ? e + 1 : NULL;
     }
     wsprintf(g_logPath, L"%s\\aaview_log.txt", exeDir);

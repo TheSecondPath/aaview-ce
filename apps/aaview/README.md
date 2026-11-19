@@ -44,7 +44,8 @@ head unit, and Android Auto video needs roughly 0.5 MB/s.
 | 0 | Pi | header: ring positions, video size, flags, the Pi's clock, the pairing code |
 | 1 | aaview | status: read position, frame counters, the last 16 touch and key events with a cumulative count |
 | 2 to 13 | aaview | microphone audio while the phone wants it |
-| the rest | Pi | the ring: H.264 access units and PCM audio records |
+| 16 to 4111 | Pi | the ring (2 MiB): H.264 access units and PCM audio records |
+| 4112 to 8191 | | unused |
 
 The byte layout is at the top of `aaview.cpp`. The Pi's side is `pi/aarecvd/src/Projection/StreamRing`.
 
@@ -148,9 +149,10 @@ Drag the icon to move it. Its position is kept in `aaview_icon.txt`, and without
 top edge. It is hidden while the rear camera is up.
 
 To pair a phone, hold the icon still for 3 s. It turns purple with "BT" and the Pi is discoverable and pairable for
-3 minutes. When a phone pairs, its 6-digit code shows on the icon in two rows of three digits: confirm on the phone
-only if it shows the same code. Holding the icon again closes pairing, and the Pi closes it 20 s after a phone pairs.
-A hold sends event 9 (x = 1 open, 0 close). The Pi's header says pairing is open with flag bit 4 and carries the
+3 minutes. When a phone pairs, its 6-digit code shows on the icon in two rows of three digits. If the phone shows
+the same code, confirm on the phone and tap the icon; without the tap the Pi refuses the phone after 30 s. Holding
+the icon again closes pairing, and the Pi closes it 20 s after a phone pairs. A hold sends event 9 (x = 1 open,
+0 close) and the tap sends event 9 with x = 2. The Pi's header says pairing is open with flag bit 4 and carries the
 code at byte 52. The icon is shown while pairing is open, even during projection.
 
 ## Ending aaview

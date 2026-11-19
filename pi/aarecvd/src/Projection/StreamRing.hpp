@@ -18,8 +18,11 @@
 //                         u32 tick, u32 nevents, 16 x (u16 x, u16 y, u8 action, u8 pointer, u16 ms), seq copy at 504
 //   2 to 13    microphone, written by aaview while flag bit 3 is set: 3 slots of 4 sectors (slot = seq % 3), each
 //                         "AVM1", u32 mic_gen, u32 seq (from 1 for each mic_gen), u32 nbytes, PCM, seq copy at 2044
-//   ring       records, 16-byte aligned: u32 len, u16 type (1 AU, 2 audio, 9 bench), u16 flags (AU: bit 0 IDR;
+//   16 to 4111 the ring (2 MiB), records, 16-byte aligned: u32 len, u16 type (1 AU, 2 audio, 9 bench), u16 flags (AU: bit 0 IDR;
 //              audio: the stream, 0 media, 1 speech, 2 system), u32 pts_ms, u32 rec_no, payload
+//   4112 on    unused
+//
+// The ring size has to be a power of two so pos % RING_BYTES stays right when the 32-bit counters wrap.
 #pragma once
 
 #include <chrono>
@@ -35,7 +38,7 @@ class StreamRing {
 public:
   static constexpr uint32_t SECTORS = 8192;
   static constexpr uint32_t RING_SECTOR = 16;
-  static constexpr uint32_t RING_BYTES = (SECTORS - RING_SECTOR) * 512;
+  static constexpr uint32_t RING_BYTES = 4096 * 512;
   static constexpr uint16_t REC_AU = 1, REC_AUDIO = 2;
   static constexpr uint32_t FLAG_QUIT = 1, FLAG_PROJECTING = 2, FLAG_PHONE = 4, FLAG_MIC = 8, FLAG_PAIRING = 16;
   static constexpr uint32_t MIC_SECTOR = 2, MIC_SLOTS = 3, MIC_SLOT_BYTES = 2048;
@@ -47,7 +50,7 @@ public:
 
   // aaview's event actions
   enum Action { DOWN = 0, UP = 1, MOVE = 2, KEYDOWN = 3, KEYUP = 4, HARDKEY = 5, ISVEVENT = 6, ICON = 7, LIGHTS = 8,
-                PAIR = 9 };   // PAIR: the icon held 3 s (x 1 open pairing, 0 close it)
+                PAIR = 9 };   // PAIR: x 1 open pairing, 0 close it (icon held 3 s), 2 code confirmed (tap)
   static std::string actionName(int action);
 
   struct HuStatus {
@@ -122,5 +125,11 @@ private:
 
 // (NAL type, offset of its 00 00 01) for every start code in an H.264 stream.
 std::vector<std::pair<int, size_t>> nalTypes(const uint8_t *data, size_t size);
+
+static_assert((StreamRing::RING_BYTES & (StreamRing::RING_BYTES - 1)) == 0, "the ring must be a power of two");
+static_assert(StreamRing::RING_SECTOR + StreamRing::RING_BYTES / 512 <= StreamRing::SECTORS,
+              "the ring must fit in the image");
+static_assert(StreamRing::MAX_RECORD_BYTES < StreamRing::RING_BYTES / 2,
+              "aaview skips records over half the ring");
 
 }  // namespace aarecvd::projection

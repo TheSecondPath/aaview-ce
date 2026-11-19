@@ -11,6 +11,7 @@
 // check, and the key overrides in /etc/aarecv-keys.conf. Nothing here throws or writes.
 #pragma once
 
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -62,6 +63,10 @@ int showSettings(const std::string &path, const std::string &legacy, bool shell,
 
 // Modification time and size of each file, to notice when one changes.
 std::vector<std::optional<std::pair<long long, long long>>> stamp(const std::vector<std::string> &paths);
+
+// Calls use(key, value) for each key=value line, skipping blank lines and # comments.
+void readKeyValues(const std::string &path,
+                   const std::function<void(const std::string &key, const std::string &value)> &use);
 
 // Whether this IPv4 client is on the /24 around ip= in /etc/aarecv.conf.
 bool apPeer(const std::string &peerIp, const std::string &confPath);

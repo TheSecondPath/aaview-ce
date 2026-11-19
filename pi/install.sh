@@ -279,8 +279,8 @@ if [ ! -f "$ROOT/srv/stick.img" ]; then
 fi
 todo "Reboot: sudo reboot"
 todo "Pair the phone once: in the car, hold the Android Auto icon on the head unit still for 3 s (it turns purple),"
-say "     then pair with the Pi from the phone's Bluetooth settings within 3 minutes; the icon shows the code the phone"
-say "     should show. Over SSH instead: sudo systemctl stop rmwork-aa; sudo /usr/local/lib/veloaa/aarecvd --bt-only --pair"
+say "     then pair with the Pi from the phone's Bluetooth settings within 3 minutes. When the code on the icon"
+say "     matches the phone's, confirm on the phone and tap the icon. Over SSH instead: sudo systemctl stop rmwork-aa; sudo /usr/local/lib/veloaa/aarecvd --bt-only --pair"
 say "     (then Ctrl-C and sudo systemctl start rmwork-aa)"
 
 # Say plainly what the services will read, since it decides whether the Pi is reachable after the reboot.

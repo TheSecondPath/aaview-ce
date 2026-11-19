@@ -113,15 +113,15 @@ Logs: `journalctl -u aarecvd -u rmwork-aa`.
 
 ### Pairing a phone
 
-On the head unit, hold aaview's icon still for 3 seconds. It turns purple, pairing is open for 3 minutes, and the
-code to compare with the phone's shows on the icon.
+On the head unit, hold aaview's icon still for 3 seconds. It turns purple and pairing is open for 3 minutes. When
+the phone pairs, the code shows on the icon. If it matches the phone's, confirm on the phone and tap the icon.
 
 Over SSH:
 
 ```
 sudo systemctl stop rmwork-aa
 sudo /usr/local/lib/veloaa/aarecvd --bt-only --pair    # discoverable and pairable for 3 minutes; logs the passkey
-# pair from the phone, then Ctrl-C
+# pair from the phone, tap the icon when the codes match, then Ctrl-C
 sudo systemctl start rmwork-aa
 ```
 

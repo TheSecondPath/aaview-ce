@@ -56,14 +56,15 @@ echo "queued $name; waiting for vagent..." >&2
 t0=$(date +%s)
 while :; do
     sleep 1
-    sudo mount -o loop,ro "$IMG" "$MNT" 2>/dev/null || continue
-    mounted=1
-    if grep -q '^DONE after' "$MNT/vagent/results/$name.txt" 2>/dev/null; then
-        tr -d '\r' < "$MNT/vagent/results/$name.txt"
-        exit 0
+    if sudo mount -o loop,ro "$IMG" "$MNT" 2>/dev/null; then
+        mounted=1
+        if grep -q '^DONE after' "$MNT/vagent/results/$name.txt" 2>/dev/null; then
+            tr -d '\r' < "$MNT/vagent/results/$name.txt"
+            exit 0
+        fi
+        sudo umount "$MNT"
+        mounted=0
     fi
-    sudo umount "$MNT"
-    mounted=0
     if [ $(( $(date +%s) - t0 )) -gt "$WAIT" ]; then
         echo "no result after $WAIT s (is vagent running? is the stick mounted as \\MD?)" >&2
         exit 2

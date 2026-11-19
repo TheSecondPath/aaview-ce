@@ -51,13 +51,13 @@ REFERENCE = {
                               ('Set', '/org/bluez/hci0', 'Pairable', 'Boolean', 1),
                               ('Set', '/org/bluez/hci0', 'DiscoverableTimeout', 'UInt32', 180),
                               ('Set', '/org/bluez/hci0', 'Discoverable', 'Boolean', 1)],
-             'agent': {'RequestConfirmation': 'ok', 'RequestPinCode': ('ok', '0000'), 'RequestPasskey': ('ok', 0)},
              'trusted': [('Set', '/org/bluez/hci0/dev_22_33_44_55_66_77', 'Trusted', 'Boolean', 1)]},
 }
 
 PHONE = '/org/bluez/hci0/dev_11_22_33_44_55_66'
 KBD = '/org/bluez/hci0/dev_AA_BB_CC_DD_EE_01'
 STRANGER = '/org/bluez/hci0/dev_22_33_44_55_66_77'
+SECOND = '/org/bluez/hci0/dev_33_44_55_66_77_88'
 AP = dict(ssid='VeloAA-test', key='test-key-123', bssid='02:00:00:00:00:01', ip='10.42.0.1')
 
 RESULTS = []
@@ -283,6 +283,12 @@ class Run:
             return 'ok', r
         except dbus.DBusException as ex:
             return ex.get_dbus_name(), None
+
+    def agent_later(self, method, *args):
+        """Calls the agent in a thread, for a request that waits for the tap. Returns a list the answer goes in."""
+        out = []
+        threading.Thread(target=lambda: out.append(self.agent(method, *args)[0]), daemon=True).start()
+        return out
 
     def pairing(self):
         """The pairing file as (until - now, passkey), or None."""
@@ -511,18 +517,27 @@ def scenario_pair(kind, binary, bz, address, tmp):
         check('%s --pair: \'discoverable as "velosterAA-test" for 3 minutes\'' % kind,
               r.logged('discoverable as "velosterAA-test" for 3 minutes'))
         mark = time.time()
-        res = {'RequestConfirmation': r.agent('RequestConfirmation', dbus.ObjectPath(STRANGER), dbus.UInt32(4321))[0],
-               'RequestPinCode': r.agent('RequestPinCode', dbus.ObjectPath(STRANGER)),
-               'RequestPasskey': r.agent('RequestPasskey', dbus.ObjectPath(STRANGER))}
-        res['RequestPinCode'] = (res['RequestPinCode'][0], str(res['RequestPinCode'][1]))
-        res['RequestPasskey'] = (res['RequestPasskey'][0], int(res['RequestPasskey'][1] or 0))
-        seen['agent'] = res
+        res = r.agent_later('RequestConfirmation', dbus.ObjectPath(STRANGER), dbus.UInt32(4321))
+        shown = wait_for(lambda: (r.pairing() or (0, 0))[1] == 4321, 5)
+        time.sleep(1)
+        check('%s --pair: confirmation waits for the tap, code 004321 on the icon' % kind,
+              shown and not res and r.logged('passkey 004321: waiting for a tap on the icon', 1), (res, r.pairing()))
+        r.notify('pair yes')
+        wait_for(lambda: res, 5)
         trusted = [c[1:] for c in bz.since(mark, 'Set')]
         seen['trusted'] = trusted
-        check('%s --pair: confirmation accepted and the device trusted; PIN 0000; passkey 0' % kind,
-              res == {'RequestConfirmation': 'ok', 'RequestPinCode': ('ok', '0000'), 'RequestPasskey': ('ok', 0)}
-              and ('Set', STRANGER, 'Trusted', 'Boolean', 1) in trusted, (res, trusted))
-        check('%s --pair: passkey logged as 004321' % kind, r.logged('passkey 004321: accepted'))
+        check('%s --pair: "pair yes": accepted and the device trusted' % kind,
+              res == ['ok'] and ('Set', STRANGER, 'Trusted', 'Boolean', 1) in trusted, (res, trusted))
+        pin = r.agent('RequestPinCode', dbus.ObjectPath(STRANGER))
+        pin = (pin[0], str(pin[1]))
+        check('%s --pair: PIN is a random 6 digits, shown on the icon' % kind,
+              pin[0] == 'ok' and len(pin[1]) == 6 and pin[1].isdigit() and (r.pairing() or (0, 0))[1] == int(pin[1]),
+              (pin, r.pairing()))
+        rej = r.agent('RequestPasskey', dbus.ObjectPath(STRANGER))[0]
+        check('%s --pair: passkey request refused (nothing to type it on)' % kind,
+              rej == 'org.bluez.Error.Rejected', rej)
+        rej = r.agent('RequestAuthorization', dbus.ObjectPath(STRANGER))[0]
+        check('%s --pair: pairing without a code refused' % kind, rej == 'org.bluez.Error.Rejected', rej)
     finally:
         code = r.stop()
     check('cpp --pair: SIGTERM: "aa: stopping", exit 0', code == 0 and r.logged('aa: stopping', 1), code)
@@ -554,10 +569,18 @@ def scenario_hold(kind, binary, bz, address, tmp):
         check('hold: the pairing file says open for about 180 s, no code yet',
               p is not None and 170 < p[0] <= 181 and p[1] == 0, p)
         check('hold: logged', r.logged('for 3 minutes: pair from the phone\'s Bluetooth settings (the icon was held)'))
-        res = r.agent('RequestConfirmation', dbus.ObjectPath(STRANGER), dbus.UInt32(123456))[0]
+        res = r.agent_later('RequestConfirmation', dbus.ObjectPath(STRANGER), dbus.UInt32(123456))
+        wait_for(lambda: (r.pairing() or (0, 0))[1] == 123456, 5)
+        r.notify('pair yes')
+        wait_for(lambda: res, 5)
         p = r.pairing()
-        check('hold: a phone pairing: accepted, its code in the file for aaview', res == 'ok' and p and p[1] == 123456,
-              (res, p))
+        check('hold: a phone pairing: its code in the file for aaview, accepted after the tap',
+              res == ['ok'] and p and p[1] == 123456, (res, p))
+        rej = r.agent('RequestConfirmation', dbus.ObjectPath(SECOND), dbus.UInt32(654321))[0]
+        p = r.pairing()
+        check('hold: a second device is refused while the first is pairing',
+              rej == 'org.bluez.Error.Rejected' and p and p[1] == 123456 and r.logged('held for another device', 2),
+              (rej, p))
         mark = time.time()
         r.notify('pair off')
         ok = wait_for(lambda: r.pairing() is None, 5)
@@ -569,7 +592,18 @@ def scenario_hold(kind, binary, bz, address, tmp):
         check('hold again: pairing refused once more', rej == 'org.bluez.Error.Rejected', rej)
         r.notify('pair on')
         wait_for(lambda: r.pairing() is not None, 5)
-        r.agent('RequestConfirmation', dbus.ObjectPath(STRANGER), dbus.UInt32(333333))
+        res = r.agent_later('RequestConfirmation', dbus.ObjectPath(STRANGER), dbus.UInt32(333333))
+        wait_for(lambda: (r.pairing() or (0, 0))[1] == 333333, 5)
+        r.notify('pair off')
+        wait_for(lambda: res, 5)
+        check('hold: not confirmed on the head unit: refused when pairing closes',
+              res == ['org.bluez.Error.Rejected'] and r.logged('refused (the icon was held again)', 2), res)
+        r.notify('pair on')
+        wait_for(lambda: r.pairing() is not None, 5)
+        res = r.agent_later('RequestConfirmation', dbus.ObjectPath(STRANGER), dbus.UInt32(444444))
+        wait_for(lambda: (r.pairing() or (0, 0))[1] == 444444, 5)
+        r.notify('pair yes')
+        wait_for(lambda: res, 5)
         check('a phone paired: pairing closes by itself 20 s later',
               wait_for(lambda: r.pairing() is None, 25) and r.logged('a phone paired: not pairable any more', 2))
     finally:
@@ -620,7 +654,7 @@ def main():
         for key in ('registration', 'adapter_sets', 'agent', 'wifi_start', 'wifi_info', 'first_connects', 'nudge',
                     'inprogress', 'noreply_exit'):
             check('matches the reference: %s' % key, ref.get(key) == cpp.get(key), (ref.get(key), cpp.get(key)))
-        for key in ('adapter_sets', 'agent', 'trusted'):
+        for key in ('adapter_sets', 'trusted'):
             check('matches the reference (--pair): %s' % key, ref['pair'].get(key) == cpp['pair'].get(key),
                   (ref['pair'].get(key), cpp['pair'].get(key)))
         print('\n  memory after start-up: aarecvd %d KB' % cpp['rss_kb'])

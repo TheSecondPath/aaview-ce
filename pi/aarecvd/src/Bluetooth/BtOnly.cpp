@@ -55,6 +55,8 @@ int onDatagram(sd_event_source *, int fd, uint32_t, void *u) {
       } else if (st->bt->pairing()) {
         st->bt->stopPairing("the icon was held again");
       }
+    } else if (msg == "pair yes") {
+      if (st->bt) st->bt->confirmPairing();
     } else if (msg.rfind("icon ", 0) == 0 && !st->active) {
       AA_INFO("aa: icon tapped (state %s) with no phone session: %s", msg.substr(5, 4).c_str(),
               st->bt ? "connecting to the phone now" : "no Bluetooth (--no-bt)");
