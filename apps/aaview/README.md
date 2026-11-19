@@ -149,9 +149,10 @@ Drag the icon to move it. Its position is kept in `aaview_icon.txt`, and without
 top edge. It is hidden while the rear camera is up.
 
 To pair a phone, hold the icon still for 3 s. It turns purple with "BT" and the Pi is discoverable and pairable for
-3 minutes. When a phone pairs, its 6-digit code shows on the icon in two rows of three digits: confirm on the phone
-only if it shows the same code. Holding the icon again closes pairing, and the Pi closes it 20 s after a phone pairs.
-A hold sends event 9 (x = 1 open, 0 close). The Pi's header says pairing is open with flag bit 4 and carries the
+3 minutes. When a phone pairs, its 6-digit code shows on the icon in two rows of three digits. If the phone shows
+the same code, confirm on the phone and tap the icon; without the tap the Pi refuses the phone after 30 s. Holding
+the icon again closes pairing, and the Pi closes it 20 s after a phone pairs. A hold sends event 9 (x = 1 open,
+0 close) and the tap sends event 9 with x = 2. The Pi's header says pairing is open with flag bit 4 and carries the
 code at byte 52. The icon is shown while pairing is open, even during projection.
 
 ## Ending aaview

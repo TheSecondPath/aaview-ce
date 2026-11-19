@@ -2709,6 +2709,10 @@ static void iconTap(void)
         g_broken = FALSE;
         return;
     }
+    if (s == IC_PAIRING && g_pairKey) { /* the phone shows the same code: let it pair */
+        touchEvent(9, 2, 0);
+        return;
+    }
     if (g_phoneUp && projecting()) {    /* over the car's phone screen: back to Android Auto */
         phoneScreenOver(L"icon tapped");
         planeAgain();
