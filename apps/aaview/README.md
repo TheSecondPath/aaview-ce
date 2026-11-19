@@ -44,7 +44,8 @@ head unit, and Android Auto video needs roughly 0.5 MB/s.
 | 0 | Pi | header: ring positions, video size, flags, the Pi's clock, the pairing code |
 | 1 | aaview | status: read position, frame counters, the last 16 touch and key events with a cumulative count |
 | 2 to 13 | aaview | microphone audio while the phone wants it |
-| the rest | Pi | the ring: H.264 access units and PCM audio records |
+| 16 to 4111 | Pi | the ring (2 MiB): H.264 access units and PCM audio records |
+| 4112 to 8191 | | unused |
 
 The byte layout is at the top of `aaview.cpp`. The Pi's side is `pi/aarecvd/src/Projection/StreamRing`.
 

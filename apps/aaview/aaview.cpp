@@ -22,7 +22,8 @@
  *                         "AVM1", u32 mic_gen, u32 seq (from 1), u32 nbytes, PCM 16 kHz 16-bit mono, seq copy at 2044
  *   ring      records, each 16-byte aligned: u32 len, u16 type (1 H.264 AU, 2 PCM audio, 9 bench filler), u16 flags
  *             (video: bit 0 IDR; audio: the stream, 0 media, 1 speech, 2 system), u32 pts_ms, u32 rec_no, then len
- *             payload bytes. wr / rd / idr_pos are cumulative byte counters.
+ *             payload bytes. wr / rd / idr_pos are cumulative byte counters. The ring is sectors 16 to 4111
+ *             (2 MiB); the rest is unused.
  * The Pi never writes past our rd (it drops frames up to the next IDR instead), so nothing we read is overwritten.
  *
  * aaview never ends on its own. Ending it by force leaves the decoder's memory behind until the head unit restarts,
