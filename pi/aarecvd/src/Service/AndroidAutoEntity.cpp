@@ -84,11 +84,11 @@ void AndroidAutoEntity::scheduleWatchdog() {
     if (ec || stopping_) return;
     // With our pings a live phone is never silent this long.
     if (activity_->secondsSinceReceive() > options_.timeout) {
-      triggerQuit(log::fmt("TimeoutError: timed out (nothing from the phone for %.0f s)", options_.timeout));
+      triggerQuit(log::fmt("timed out: nothing from the phone for %.0f s", options_.timeout));
       return;
     }
     if (activity_->secondsSendBlocked() > options_.timeout) {
-      triggerQuit(log::fmt("TimeoutError: timed out (a send to the phone blocked for %.0f s)", options_.timeout));
+      triggerQuit(log::fmt("timed out: a send to the phone blocked for %.0f s", options_.timeout));
       return;
     }
     scheduleWatchdog();
@@ -101,7 +101,7 @@ void AndroidAutoEntity::onVersionResponse(uint16_t majorCode, uint16_t minorCode
   AA_DBG("aa: <- VERSION_RESPONSE %d.%d status %d", boost::endian::big_to_native(majorCode),
          boost::endian::big_to_native(minorCode), st);
   if (st == -1 || st == 0xffff) {
-    triggerQuit("RuntimeError: phone says version mismatch");
+    triggerQuit("the phone says version mismatch");
     return;
   }
   try {
@@ -182,7 +182,7 @@ void AndroidAutoEntity::onByeByeRequest(const ctl::ByeByeRequest &request) {
   ctl::ByeByeResponse response;
   auto promise = aasdk::channel::SendPromise::defer(strand_);
   const std::string reason =
-      log::fmt("EOFError: phone shut the session down (reason %d)", static_cast<int>(request.reason()));
+      log::fmt("the phone shut the session down (reason %d)", static_cast<int>(request.reason()));
   promise->then([this, self = this->shared_from_this(), reason]() { triggerQuit(reason); },
                 [this, self = this->shared_from_this(), reason](const aasdk::error::Error &) { triggerQuit(reason); });
   controlServiceChannel_->sendShutdownResponse(response, std::move(promise));
