@@ -101,7 +101,7 @@ on the icon for 3 seconds to start pairing).
 
 1. With the car on and the Pi plugged in, hold the Android Auto icon on the head unit for 3 seconds, until it turns purple.
 2. On the phone, open Bluetooth settings and pair with the Pi (the hostname you gave it) within 3 minutes.
-3. Check that the code on the phone matches the one on the icon.
+3. Check that the code on the phone matches the one on the icon, then confirm on the phone and tap the icon.
 4. Android Auto starts on the car's screen. If the phone asks, allow Android Auto to connect wirelessly.
 
 ## Subsequent connections

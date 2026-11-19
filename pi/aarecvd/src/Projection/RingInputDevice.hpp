@@ -28,7 +28,7 @@ namespace aarecvd::projection {
 class RingInputDevice : public IInputDevice {
 public:
   typedef std::function<void(int state)> IdleIconHandler;
-  typedef std::function<void(bool open)> PairHandler;   // the icon held 3 s: open or close Bluetooth pairing
+  typedef std::function<void(int x)> PairHandler;   // 1 open pairing, 0 close it, 2 the code was confirmed
 
   RingInputDevice(std::shared_ptr<StreamRing> ring, std::string keysConf, uint32_t width, uint32_t height);
   ~RingInputDevice() override;

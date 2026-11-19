@@ -65,6 +65,8 @@ public:
   void startPairing(const char *why);
   void stopPairing(const char *why);
   bool pairing() const { return pairing_; }
+  // The code on aaview's icon was confirmed with a tap: answer the waiting pairing request.
+  void confirmPairing();
 
   // Public for the sd-bus vtables' C callbacks.
   struct Profile {
@@ -132,6 +134,10 @@ private:
   uint64_t pairGen_ = 0;                          // which opening of pairing a timer belongs to
   double pairUntil_ = 0;                          // monotonicSeconds() when it closes by itself
   std::string pairingDevice_;                     // the device pairing in this window
+  sd_bus_message *confirmMsg_ = nullptr;          // a RequestConfirmation waiting for the tap
+  std::string confirmDevice_;
+  uint64_t confirmGen_ = 0;
+  void answerConfirmation(bool yes, const char *why);
   void publishPairing(uint32_t passkey);
   void pairedWith(const std::string &device);     // a phone paired: pairing closes 20 s later
   std::optional<double> idleSince_;               // since when there has been no session

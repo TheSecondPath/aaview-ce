@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <random>
 #include <stdexcept>
 #include <thread>
 
@@ -41,6 +42,7 @@ const char *AGENT_PATH = "/veloaa/agent";
 
 const double NUDGE_AFTER = 60;       // s a phone may sit connected over Bluetooth with no AA session before it's nudged
 const double CONNECT_LIMIT = 20;     // s for one connect attempt (WirelessAndroidAutoDongle and aa-proxy-rs both use 20)
+const uint64_t CONFIRM_MS = 30000;   // how long a pairing request waits for the tap on the head unit
 const uint64_t HSP_HOLD_MS = 10000;  // the headset link may stay open waiting for the phone to open the AA wireless link
 const double RESET_ANYWAY = 900;     // s of unanswered connects after which the chip is reset even though it answers
 
@@ -179,6 +181,7 @@ Bluetooth::Bluetooth(sd_event *event, const Options &options, const bool &sessio
 
 Bluetooth::~Bluetooth() {
   if (pairing_) clearPairingState(options_.pairingFile);
+  if (confirmMsg_) sd_bus_message_unref(confirmMsg_);
   for (Profile *p : {&aaw_, &hsp_}) {
     for (auto &kv : p->fds) ::close(kv.second.fd);
     sd_bus_slot_unref(p->slot);
@@ -438,6 +441,7 @@ void Bluetooth::stopPairing(const char *why) {
   if (!pairing_) return;
   pairing_ = false;
   pairingDevice_.clear();
+  answerConfirmation(false, why);
   ++pairGen_;                                    // the open window's timers now do nothing
   setAdapterProperty("Pairable", 'b', 0);
   setAdapterProperty("Discoverable", 'b', 0);
@@ -458,6 +462,33 @@ void Bluetooth::pairedWith(const std::string &device) {
   after(20000, [this, gen]() {
     if (pairing_ && gen == pairGen_) stopPairing("a phone paired");
   });
+}
+
+void Bluetooth::confirmPairing() {
+  if (!confirmMsg_) {
+    AA_INFO("bt: icon tapped to confirm, but no pairing is waiting");
+    return;
+  }
+  answerConfirmation(true, "code confirmed on the head unit");
+}
+
+void Bluetooth::answerConfirmation(bool yes, const char *why) {
+  sd_bus_message *m = confirmMsg_;
+  const std::string dev = confirmDevice_;
+  confirmMsg_ = nullptr;
+  confirmDevice_.clear();
+  ++confirmGen_;
+  if (!m) return;
+  if (yes) {
+    AA_INFO("bt: pairing %s: %s", dev.c_str(), why);
+    trust(dev);
+    pairedWith(dev);
+    sd_bus_reply_method_return(m, "");
+  } else {
+    AA_WARN("bt: pairing %s refused (%s)", dev.c_str(), why);
+    sd_bus_reply_method_errorf(m, "org.bluez.Error.Rejected", "%s", why);
+  }
+  sd_bus_message_unref(m);
 }
 
 // ---------------- the pairing agent ----------------
@@ -482,9 +513,12 @@ int Bluetooth::agentRequestPinCode(sd_bus_message *m, void *u, sd_bus_error *e) 
   if (r < 0) return r;
   if (!bt->pairing_) return bt->refuse("PIN request", dev, e);
   if (bt->otherDevice(dev)) return bt->refuse("PIN request", dev, e, "pairing is held for another device");
-  AA_INFO("bt: PIN requested by %s: using 0000", dev);
+  std::random_device rd;
+  const uint32_t pin = std::uniform_int_distribution<uint32_t>(100000, 999999)(rd);
+  AA_INFO("bt: PIN requested by %s: %06u, shown on the head unit", dev, pin);
+  bt->publishPairing(pin);
   bt->pairedWith(dev);
-  return sd_bus_reply_method_return(m, "s", "0000");
+  return sd_bus_reply_method_return(m, "s", log::fmt("%06u", pin).c_str());
 }
 
 int Bluetooth::agentRequestPasskey(sd_bus_message *m, void *u, sd_bus_error *e) {
@@ -493,8 +527,7 @@ int Bluetooth::agentRequestPasskey(sd_bus_message *m, void *u, sd_bus_error *e) 
   int r = sd_bus_message_read(m, "o", &dev);
   if (r < 0) return r;
   if (!bt->pairing_) return bt->refuse("passkey request", dev, e);
-  if (bt->otherDevice(dev)) return bt->refuse("passkey request", dev, e, "pairing is held for another device");
-  return sd_bus_reply_method_return(m, "u", static_cast<uint32_t>(0));
+  return bt->refuse("passkey request", dev, e, "there is no way to type a code on the head unit");
 }
 
 int Bluetooth::agentDisplayPasskey(sd_bus_message *m, void *u, sd_bus_error *) {
@@ -527,11 +560,16 @@ int Bluetooth::agentRequestConfirmation(sd_bus_message *m, void *u, sd_bus_error
   if (bt->otherDevice(dev))
     return bt->refuse(log::fmt("pairing (passkey %06u)", passkey).c_str(), dev, e,
                       "pairing is held for another device");
-  AA_INFO("bt: pairing %s, passkey %06u: accepted (check it matches the phone)", dev, passkey);
-  bt->publishPairing(passkey);                   // aaview shows it; the phone asks to confirm the same code
-  bt->trust(dev);
-  bt->pairedWith(dev);
-  return sd_bus_reply_method_return(m, "");
+  bt->answerConfirmation(false, "a newer request came");
+  AA_INFO("bt: pairing %s, passkey %06u: waiting for a tap on the icon", dev, passkey);
+  bt->publishPairing(passkey);
+  bt->confirmMsg_ = sd_bus_message_ref(m);
+  bt->confirmDevice_ = dev;
+  const uint64_t gen = bt->confirmGen_;
+  bt->after(CONFIRM_MS, [bt, gen]() {
+    if (gen == bt->confirmGen_) bt->answerConfirmation(false, "not confirmed on the head unit in time");
+  });
+  return 1;
 }
 
 int Bluetooth::agentRequestAuthorization(sd_bus_message *m, void *u, sd_bus_error *e) {
@@ -540,10 +578,7 @@ int Bluetooth::agentRequestAuthorization(sd_bus_message *m, void *u, sd_bus_erro
   int r = sd_bus_message_read(m, "o", &dev);
   if (r < 0) return r;
   if (!bt->pairing_) return bt->refuse("pairing", dev, e);
-  if (bt->otherDevice(dev)) return bt->refuse("pairing", dev, e, "pairing is held for another device");
-  bt->trust(dev);
-  bt->pairedWith(dev);
-  return sd_bus_reply_method_return(m, "");
+  return bt->refuse("pairing without a code", dev, e, "there is no code to check");
 }
 
 int Bluetooth::agentAuthorizeService(sd_bus_message *m, void *u, sd_bus_error *e) {
@@ -555,8 +590,9 @@ int Bluetooth::agentAuthorizeService(sd_bus_message *m, void *u, sd_bus_error *e
   return sd_bus_reply_method_return(m, "");
 }
 
-int Bluetooth::agentCancel(sd_bus_message *m, void *, sd_bus_error *) {
+int Bluetooth::agentCancel(sd_bus_message *m, void *u, sd_bus_error *) {
   AA_INFO("bt: pairing cancelled");
+  static_cast<Bluetooth *>(u)->answerConfirmation(false, "cancelled");
   return sd_bus_reply_method_return(m, "");
 }
 

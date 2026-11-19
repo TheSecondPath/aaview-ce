@@ -109,8 +109,11 @@ void RingInputDevice::loop() {
 void RingInputDevice::handle(const StreamRing::Event &ev, const IInputDeviceEventHandler::Pointer &h) {
   const int x = ev.x, y = ev.y;
   if (ev.action == StreamRing::PAIR) {     // with or without a session
-    AA_INFO("aa: icon held: %s Bluetooth pairing", x ? "open" : "close");
-    if (pair_) pair_(x != 0);
+    if (x == 2)
+      AA_INFO("aa: icon tapped: pairing code confirmed");
+    else
+      AA_INFO("aa: icon held: %s Bluetooth pairing", x ? "open" : "close");
+    if (pair_) pair_(x);
     return;
   }
   if (!h) {

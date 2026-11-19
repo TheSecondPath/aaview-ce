@@ -50,7 +50,7 @@ public:
 
   // aaview's event actions
   enum Action { DOWN = 0, UP = 1, MOVE = 2, KEYDOWN = 3, KEYUP = 4, HARDKEY = 5, ISVEVENT = 6, ICON = 7, LIGHTS = 8,
-                PAIR = 9 };   // PAIR: the icon held 3 s (x 1 open pairing, 0 close it)
+                PAIR = 9 };   // PAIR: x 1 open pairing, 0 close it (icon held 3 s), 2 code confirmed (tap)
   static std::string actionName(int action);
 
   struct HuStatus {
