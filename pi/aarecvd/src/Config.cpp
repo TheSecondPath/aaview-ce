@@ -428,6 +428,7 @@ HardKeys::HardKeys()
            {1, 0x7f}, {2, 0x7f}, {3, 0x7f}, {5, 0x7f}} {}
 
 void HardKeys::loadOverrides(const std::string &path) {
+  map_ = HardKeys().map_;                      // so removed lines go back to the default
   std::ifstream f(path);
   std::string ln;
   while (f && std::getline(f, ln)) {
