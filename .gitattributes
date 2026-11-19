@@ -1,0 +1,15 @@
+# Keep shell scripts LF so they run on Debian even when checked out on Windows; batch files stay CRLF.
+* text=auto
+*.sh    text eol=lf
+*.rules text eol=lf
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+# The Pi's programs, units and settings example run or are read on Debian: LF whatever the checkout's platform.
+pi/aa-ap        text eol=lf
+pi/stick-gadget text eol=lf
+pi/vjob         text eol=lf
+pi/*.py         text eol=lf
+pi/*.service    text eol=lf
+pi/*.conf       text eol=lf
+pi/*.example    text eol=lf
+pi/aarecvd/** text eol=lf

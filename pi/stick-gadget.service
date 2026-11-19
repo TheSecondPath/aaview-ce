@@ -1,0 +1,14 @@
+[Unit]
+Description=Present /srv/stick.img to the car as a USB flash drive
+# veloaa-ramfiles.service, which makes the mailbox and stream drives, orders itself before this unit and is
+# required by it.
+After=sys-kernel-config.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/stick-gadget up
+ExecStop=/usr/local/sbin/stick-gadget down
+
+[Install]
+WantedBy=multi-user.target

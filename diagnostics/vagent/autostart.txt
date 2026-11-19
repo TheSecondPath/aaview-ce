@@ -1,0 +1,2 @@
+# started by vagent at boot (one program per line)
+\MD\aaview\aaview.exe /auto

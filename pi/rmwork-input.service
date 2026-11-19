@@ -1,0 +1,11 @@
+[Unit]
+Description=velosterAA: Bluetooth keyboards and gamepads to the head unit (mailbox drive). Dev build only
+After=bluetooth.target stick-gadget.service
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/rmwork_input.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

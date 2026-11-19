@@ -1,0 +1,21 @@
+# veloaa.txt: settings for the Veloster Android Auto receiver on this Pi.
+# It lives on the SD card's boot partition (/boot/firmware/veloaa.txt on the Pi; the "bootfs" drive when the
+# card is in a PC), so it can be edited with Notepad. Save it as plain text (UTF-8). Changes take effect at the
+# next start of the Pi. Lines starting with # are comments.
+
+# Join your home Wi-Fi when the car is parked in range of it (for updates and logs over SSH): on or off.
+# Off keeps the Pi's Wi-Fi for the phone only.
+home_wifi=off
+
+# The home network's name, exactly as your phone shows it. Used only when home_wifi=on.
+# The password is NOT kept here: set the network up once on the Pi itself (Raspberry Pi Imager's Wi-Fi
+# settings when writing the card, or "sudo nmcli device wifi connect <name> --ask"). See pi/README.md.
+home_wifi_ssid=
+
+# How much goes into the logs: error, warning, info or debug.
+log_level=info
+
+# Set the head unit's clock from the Pi's when they are more than 3 minutes apart: on or off.
+# This happens only once the Pi's clock has been set from the internet, so only with home Wi-Fi on. It uses the
+# Pi's time zone (set it with Raspberry Pi Imager, or "sudo raspi-config" > Localisation > Timezone).
+set_clock=on

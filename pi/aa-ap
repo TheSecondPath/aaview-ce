@@ -1,0 +1,395 @@
+#!/bin/sh
+# aa-ap: the Pi's own Wi-Fi access point for the phone (wireless Android Auto), next to the home connection.
+#   aa-ap up        create uap0, start the AP (NetworkManager "aa-ap", shared, 10.42.0.1), write /etc/aarecv.conf
+#   aa-ap down      stop it, remove uap0 and /etc/aarecv.conf (without it aarecvd starts no session)
+#   aa-ap firewall  (part of up) stop the Pi routing between the AP and its other networks
+#   aa-ap trial     up, then roll back by itself after 180 s unless /run/aa-ap.ok appears (touch it to keep it)
+#   aa-ap watch     run by aa-ap.service: reads the settings, starts the AP and keeps it up. With home Wi-Fi on it
+#                   also keeps the AP on wlan0's channel (the chip allows one channel for both) and keeps wlan0 from
+#                   scanning for home while the phone is connected away from it, and from trying for home while a
+#                   phone is joining the AP
+#   aa-ap status
+#
+# The settings come from /boot/firmware/veloaa.txt, read through 'aarecvd --show-settings --shell' when "watch"
+# starts:
+#   home_wifi=off (the default, also when the file is missing or unreadable): wlan0 is taken away from
+#       NetworkManager, so the Pi joins no network at all and its one radio is the phone's access point only.
+#   home_wifi=on and home_wifi_ssid=<name>: the Pi joins that one network, through the profile NetworkManager has
+#       saved for it. The password is in that profile, never in veloaa.txt. Every other saved Wi-Fi profile has
+#       its autoconnect switched off until the next reboot, in memory only; the saved files are not rewritten.
+#       With no saved profile of that name: a warning, and home Wi-Fi stays off.
+#   log_level: this script's lines carry their syslog priority and are kept or dropped like aarecvd's.
+# The home Wi-Fi settings are applied when the service starts; the log level is looked at again every 30 s.
+#
+# The brcmfmac chip on the Zero 2 W allows one managed + one AP interface, on a single channel (iw list).
+# WPA2 only, with PMF off: with PMF optional NetworkManager advertises WPA3/SAE transition mode, and the phone,
+# told "WPA2-Personal" by aarecvd, keeps scanning and never associates.
+# The AP's passphrase is generated once into /etc/aa-ap.psk (root only); aarecvd --bt-only sends it to the phone
+# over Bluetooth.
+set -u
+IW=${AA_AP_IW:-/usr/sbin/iw}
+NFT=${AA_AP_NFT:-/usr/sbin/nft}
+CON=aa-ap
+SSID=${AA_AP_SSID:-VeloAA}
+ADDR=10.42.0.1
+PSKF=${AA_AP_PSKF:-/etc/aa-ap.psk}
+CONF=${AA_AP_CONF:-/etc/aarecv.conf}
+STATE=${AA_AP_STATE:-/var/lib/aa-ap}    # home_channel: the channel the home link was last on
+HELD=${AA_AP_HELD:-/run/aa-ap.held}     # UUIDs of the saved profiles whose autoconnect "watch" switched off
+SYSNET=${AA_AP_SYSNET:-/sys/class/net}
+LOOP=${AA_AP_LOOP:-30}                  # seconds between looks in "watch"
+JOINING=${AA_AP_JOINING:-/run/veloaa/joining}   # aarecvd --bt-only touches it when a phone starts joining the AP
+
+AARECVD=${VELOAA_AARECVD:-/usr/local/lib/veloaa/aarecvd}     # its --show-settings reads veloaa.txt
+SETTINGS=${VELOAA_SETTINGS:-/boot/firmware/veloaa.txt}
+LEVELF=${VELOAA_LOGLEVEL:-/etc/aarecv/loglevel}
+
+# What is in force: the defaults until "watch" has read the settings. F_* is what the file says now.
+HOME_WIFI=off; HOME_SSID=; HOME_SSID_IW=; HOME_UUID=
+F_WIFI=off; F_SSID=; F_SSID_IW=
+LEVEL=6; LEVEL_WORD=info; STAMP=; WARNED=
+
+# say <syslog priority> <text>: 3 error, 4 warning, 6 info, 7 debug. Under systemd the priority goes with the line
+# (journalctl -u aa-ap -p warning); by hand it is plain text.
+say() {
+    P=$1; shift
+    [ "$P" -le "$LEVEL" ] || return 0
+    if [ -n "${JOURNAL_STREAM:-}" ]; then echo "<$P>$*"; else echo "$*"; fi
+}
+
+setting() { printf '%s\n' "$OUT" | sed -n "s/^$1=//p" | head -n 1; }
+settings_stamp() { cksum "$SETTINGS" "$LEVELF" 2>&1 | cksum; }
+
+# Fills F_WIFI, F_SSID, F_SSID_IW (the home Wi-Fi settings as the file has them) and LEVEL from veloaa.txt. The
+# reader's output is taken apart line by line and never run as shell. If the reader cannot be run at all: the
+# defaults, and a warning.
+read_settings() {
+    STAMP=$(settings_stamp)
+    OUT=$("$AARECVD" --show-settings --shell --settings "$SETTINGS" --loglevel-file "$LEVELF" 2>/dev/null) || OUT=
+    F_WIFI=off; F_SSID=; F_SSID_IW=
+    if [ -z "$OUT" ]; then
+        LEVEL=6; LEVEL_WORD=info
+        W="settings: could not run $AARECVD: home Wi-Fi off, log level info"
+    else
+        [ "$(setting home_wifi)" = on ] && F_WIFI=on
+        F_SSID=$(setting home_wifi_ssid)
+        F_SSID_IW=$(setting home_wifi_ssid_iw)
+        case "$(setting log_level_num)" in
+            3) LEVEL=3 ;; 4) LEVEL=4 ;; 7) LEVEL=7 ;; *) LEVEL=6 ;;
+        esac
+        LEVEL_WORD=$(setting log_level)
+        # What is wrong with the file itself or with log_level is aarecvd's to report: one warning, not two.
+        W=$(setting warn_home)
+        [ -n "$W" ] && W="settings: $W"
+    fi
+    if [ -z "$F_SSID" ] || [ -z "$F_SSID_IW" ]; then F_WIFI=off; fi
+    if [ "$W" != "$WARNED" ]; then
+        WARNED=$W
+        [ -n "$W" ] && say 4 "$W"
+    fi
+    return 0
+}
+
+# The saved NetworkManager profile for the home network: the first Wi-Fi profile, other than the AP's own, whose
+# network name is exactly HOME_SSID. Prints its UUID.
+find_home() {
+    LC_ALL=C.UTF-8 nmcli -t -f UUID,TYPE con show 2>/dev/null | sed -n 's/:802-11-wireless$//p' | {
+        while read -r U; do
+            [ "$(LC_ALL=C.UTF-8 nmcli -g connection.id con show "$U" 2>/dev/null)" = "$CON" ] && continue
+            [ "$(LC_ALL=C.UTF-8 nmcli -g 802-11-wireless.mode con show "$U" 2>/dev/null)" = ap ] && continue
+            if [ "$(LC_ALL=C.UTF-8 nmcli --escape no -g 802-11-wireless.ssid con show "$U" 2>/dev/null)" = "$HOME_SSID" ]; then
+                echo "$U"
+                exit 0
+            fi
+        done
+        exit 1
+    }
+}
+
+# Only the named network: every other saved Wi-Fi profile stops connecting by itself until the next reboot
+# (--temporary: NetworkManager keeps the change in memory, the saved file stays as it is), and one of them that is
+# connected now is taken down. "down" puts their autoconnect back.
+hold_others() {
+    : > "$HELD"
+    nmcli -t -f UUID,TYPE con show 2>/dev/null | sed -n 's/:802-11-wireless$//p' | while read -r U; do
+        [ "$U" = "$HOME_UUID" ] && continue
+        [ "$(nmcli -g connection.id con show "$U" 2>/dev/null)" = "$CON" ] && continue
+        [ "$(nmcli -g 802-11-wireless.mode con show "$U" 2>/dev/null)" = ap ] && continue
+        [ "$(nmcli -g connection.autoconnect con show "$U" 2>/dev/null)" = no ] && continue
+        if nmcli con modify --temporary "$U" connection.autoconnect no 2>/dev/null; then
+            echo "$U" >> "$HELD"
+            say 6 "home Wi-Fi: another saved network ($U) will not be joined until the next reboot"
+        else
+            say 4 "home Wi-Fi: could not stop another saved network ($U) from being joined"
+        fi
+        if nmcli -t -f UUID,DEVICE con show --active 2>/dev/null | grep -q "^$U:wlan0\$"; then
+            nmcli con down "$U" >/dev/null 2>&1
+        fi
+    done
+}
+
+release_others() {
+    [ -f "$HELD" ] || return 0
+    while read -r U; do
+        [ -n "$U" ] && nmcli con modify --temporary "$U" connection.autoconnect yes 2>/dev/null
+    done < "$HELD"
+    rm -f "$HELD"
+}
+
+# The channel "iw info" gives for wlan0 means the home link only while that is connected. Unconnected, the chip
+# reports wherever it happens to be, and following that once made the AP move when home joined, which dropped
+# the phone.
+sta_connected() { $IW dev wlan0 link 2>/dev/null | grep -q '^Connected'; }
+sta_channel() { $IW dev wlan0 info 2>/dev/null | awk '/channel/{print $2; exit}'; }
+ap_channel() { nmcli -g 802-11-wireless.channel con show $CON 2>/dev/null; }
+phone_here() { $IW dev uap0 station dump 2>/dev/null | grep -q 'authorized:.*yes'; }
+session_up() { ss -Htn state established src $ADDR 2>/dev/null | grep -q .; }      # an open TCP connection to the AP's address is aarecvd's session
+
+# One look on the AP's own channel for the home network named in the settings, as iw prints names (HOME_SSID_IW).
+# The radio stays where it is and the look takes about 55 ms; the phone's audio does not notice it.
+home_in_sight() {
+    F=$($IW dev uap0 info 2>/dev/null | sed -n 's/.*channel [0-9]* (\([0-9]*\) MHz.*/\1/p')
+    [ -n "$F" ] || return 1
+    ip link set wlan0 up 2>/dev/null
+    $IW dev wlan0 scan freq "$F" 2>/dev/null | sed -n 's/^[[:space:]]*SSID: //p' | grep -Fxq -- "$HOME_SSID_IW"
+}
+
+# NetworkManager's "shared" mode (used for its DHCP server) also routes and NATs the AP's clients to whatever else
+# the Pi is on: the home network. The AP is only there for the phone to reach the Pi, so drop everything that
+# would be forwarded to or from it. A drop here holds even where NetworkManager's own table accepts the packet.
+firewall() {
+    $NFT delete table inet veloaa 2>/dev/null
+    $NFT add table inet veloaa &&
+        $NFT add chain inet veloaa forward '{ type filter hook forward priority -10; policy accept; }' &&
+        $NFT add rule inet veloaa forward iifname "uap0" oifname != "uap0" drop &&
+        $NFT add rule inet veloaa forward oifname "uap0" iifname != "uap0" drop ||
+        say 4 "warning: could not block forwarding for uap0 (nft)"
+}
+
+up() {
+    # 48 random bytes, so that 16 characters are left once the / + = are taken out
+    [ -s $PSKF ] || { (umask 077; head -c 48 /dev/urandom | base64 -w 0 | tr -d '/+=' | head -c 16 > $PSKF); }
+    PSK=$(cat $PSKF)
+    # With home Wi-Fi: the home link's channel, where it is now, else where it last was (so the AP need not move
+    # when it joins). Without: a fixed one.
+    CH=
+    if [ "$HOME_WIFI" = on ] || [ "${1:-}" = byhand ]; then
+        sta_connected && CH=$(sta_channel)
+        [ -n "$CH" ] || CH=$(cat $STATE/home_channel 2>/dev/null)
+    fi
+    CH=${CH:-${AA_AP_CHANNEL:-6}}
+    if ! $IW dev uap0 info >/dev/null 2>&1; then
+        if ! $IW dev wlan0 interface add uap0 type __ap; then
+            say 3 "could not create the AP interface uap0 on wlan0 (is Wi-Fi blocked? rfkill list; the Wi-Fi country must be set once: sudo raspi-config nonint do_wifi_country <XX>)"
+            exit 1
+        fi
+        # its own (locally administered) MAC, so the phone can tell the two apart
+        MAC=$(cat $SYSNET/wlan0/address | sed 's/^../02/')
+        ip link set uap0 address "$MAC"
+    fi
+    nmcli dev set uap0 managed yes 2>/dev/null
+    sleep 1
+    if ! nmcli -t con show | grep -q "^$CON:"; then
+        nmcli con add type wifi ifname uap0 con-name $CON autoconnect no ssid "$SSID" \
+            802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel "$CH" \
+            802-11-wireless.powersave 2 \
+            ipv4.method shared ipv4.addresses $ADDR/24 ipv6.method disabled \
+            wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$PSK" wifi-sec.proto rsn wifi-sec.pairwise ccmp wifi-sec.group ccmp \
+            wifi-sec.pmf disable >/dev/null
+    else
+        nmcli con modify $CON 802-11-wireless.channel "$CH" wifi-sec.psk "$PSK" wifi-sec.pmf disable
+    fi
+    firewall
+    if ! nmcli con up $CON >/dev/null; then
+        say 3 "the access point did not start (rfkill list shows whether Wi-Fi is blocked: the Wi-Fi country must be set once)"
+        down
+        exit 1
+    fi
+    BSSID=$(cat $SYSNET/uap0/address)
+    (umask 077; printf 'ssid=%s\nkey=%s\nbssid=%s\nip=%s\n' "$SSID" "$PSK" "$BSSID" "$ADDR" > $CONF)
+    say 6 "AP $SSID up on channel $CH, $BSSID, $ADDR"
+}
+
+down() {
+    nmcli con down $CON >/dev/null 2>&1
+    $IW dev uap0 del 2>/dev/null
+    $NFT delete table inet veloaa 2>/dev/null
+    release_others
+    nmcli device set wlan0 managed yes 2>/dev/null
+    rm -f $CONF
+    say 6 "AP down"
+}
+
+case "${1:-status}" in
+    up) up byhand ;;
+    down) down ;;
+    firewall) firewall ;;
+    trial)
+        rm -f /run/aa-ap.ok
+        up byhand
+        echo "trial: rolling back in 180 s unless /run/aa-ap.ok appears"
+        i=0
+        while [ $i -lt 180 ]; do
+            [ -f /run/aa-ap.ok ] && { echo "trial: kept"; exit 0; }
+            sleep 1; i=$((i + 1))
+        done
+        echo "trial: no confirmation; rolling back"; down ;;
+    watch)
+        # Needs "options brcmfmac roamoff=1" (/etc/modprobe.d): with firmware roaming on, the home link hops
+        # between two mesh access points (channels 6/11) every time the AP moves, and the churn starves Bluetooth
+        # on the shared chip (hci0 command timeouts). The AP only follows a channel change that lasts 2 checks.
+        #
+        # Away from home NetworkManager scans every channel for the home network every 2 minutes, and each scan
+        # takes the one radio off the AP's channel: the phone's audio stalls 340-810 ms each time. So while the
+        # phone is connected and home is not, wlan0 is taken away from NetworkManager (no scans at all; the AP,
+        # the phone's link and the firewall stay up), and given back when the phone has gone or home shows on
+        # the AP's own channel. Giving it back costs the phone's session (NetworkManager's first scan; about 25 s
+        # until Android Auto is back), so with a session running home has to be in sight for 5 minutes first:
+        # parked at home, not driving past it. And if home was in sight but NetworkManager did not get onto it,
+        # the next look is 10 minutes later; without that wait it goes round every 2 minutes, a burst of scans
+        # and the phone thrown off the AP each time.
+        #
+        # With home Wi-Fi off none of that applies: wlan0 stays away from NetworkManager for good and the loop
+        # only brings the AP back if its interface has gone.
+        read_settings
+        HOME_WIFI=$F_WIFI; HOME_SSID=$F_SSID; HOME_SSID_IW=$F_SSID_IW; TOLD=
+        if [ "$HOME_WIFI" = on ]; then
+            HOME_UUID=$(find_home)
+            if [ -z "$HOME_UUID" ]; then
+                say 4 "settings: home_wifi=on, but this Pi has no saved Wi-Fi network named \"$HOME_SSID\" (set it up once: sudo nmcli device wifi connect \"<name>\" --ask): home Wi-Fi stays off"
+                HOME_WIFI=off
+            fi
+        fi
+        if [ "$HOME_WIFI" = on ]; then
+            say 6 "settings: home Wi-Fi on, network \"$HOME_SSID\"; log level $LEVEL_WORD"
+            hold_others
+            nmcli device set wlan0 managed yes 2>/dev/null
+        else
+            say 6 "settings: home Wi-Fi off (wlan0 is for the phone's access point only); log level $LEVEL_WORD"
+            release_others
+            nmcli device set wlan0 managed no 2>/dev/null
+            ip link set wlan0 up 2>/dev/null
+        fi
+        up
+        miss=0; away=0; gone=0; seen=0; quiet=0; hold=0; idle=0
+        # NetworkManager stops retrying a profile after a few failed tries in a row, and once it has given up it
+        # does not try again on its own however often wlan0 is handed back. An explicit "con up" is not subject
+        # to that, so it is asked for on every hand-back, and every 2 minutes while home is down and no phone is
+        # here.
+        home_up() {
+            [ -n "$HOME_UUID" ] && nmcli --wait 60 con up "$HOME_UUID" >/dev/null 2>&1 &
+        }
+        rejoin() {
+            say 6 "$1: wlan0 back to NetworkManager"
+            nmcli device set wlan0 managed yes
+            home_up
+            quiet=0; away=0; idle=0
+        }
+        # A phone starting to join the AP (aarecvd --bt-only touches $JOINING when it opens the AA wireless link)
+        # cuts the wait short. With home Wi-Fi on and not connected, NetworkManager keeps trying for home; in the
+        # driveway it can be rejected hundreds of times an hour, each try a scan or an association attempt on the
+        # one radio. That would go on for the 90 s before the "phone connected, home not" rule below, while the
+        # phone is trying to get onto the AP.
+        JSEEN=$(stat -c %Y "$JOINING" 2>/dev/null || true); JOIN=
+        joined_since() {
+            J=$(stat -c %Y "$JOINING" 2>/dev/null || true)
+            [ -n "$J" ] && [ "$J" != "$JSEEN" ] && { JSEEN=$J; JOIN=1; }
+        }
+        nap() {
+            joined_since && return 0
+            sleep "$LOOP" & SP=$!
+            while kill -0 $SP 2>/dev/null; do
+                if joined_since; then kill $SP 2>/dev/null; wait $SP 2>/dev/null; return 0; fi
+                sleep 1
+            done
+            wait $SP
+        }
+        while nap; do
+            if [ "$(settings_stamp)" != "$STAMP" ]; then
+                # The log level follows the files at once. The home Wi-Fi settings stay as they were at the start:
+                # changing networks under a running session is not worth it, so a change is only pointed out.
+                WAS=$LEVEL; WAS_WORD=$LEVEL_WORD
+                read_settings
+                if [ "$LEVEL_WORD" != "$WAS_WORD" ]; then
+                    P=6
+                    [ "$WAS" -lt $P ] && P=$WAS
+                    [ "$LEVEL" -lt $P ] && P=$LEVEL
+                    say $P "settings: log level $LEVEL_WORD"
+                fi
+                if [ "$F_WIFI" = "$HOME_WIFI" ] && { [ "$F_WIFI" = off ] || [ "$F_SSID" = "$HOME_SSID" ]; }; then
+                    TOLD=
+                elif [ "$F_WIFI" = on ] && [ "$F_SSID" = "$HOME_SSID" ] && [ -z "$HOME_UUID" ]; then
+                    :                   # asked for and not possible: the warning at the start said so
+                elif [ -z "$TOLD" ]; then
+                    say 4 "settings: the home Wi-Fi settings have changed: they apply when aa-ap next starts (a reboot, or: sudo systemctl restart aa-ap)"
+                    TOLD=1
+                fi
+            fi
+            if [ -n "$JOIN" ]; then
+                JOIN=
+                if [ "$HOME_WIFI" = on ] && [ $quiet = 0 ] && ! sta_connected; then
+                    say 6 "a phone is joining the AP and home Wi-Fi is not connected: wlan0 stops trying for home"
+                    nmcli device set wlan0 managed no
+                    # The quiet rules below give it back: the phone gone for a minute, or home in sight. No
+                    # looking for home for 2 minutes, and a phone that does not show up has 90 s.
+                    quiet=1; gone=-1; seen=0; hold=4; away=0; idle=0
+                fi
+            fi
+            if [ "$HOME_WIFI" != on ]; then
+                :
+            elif [ $quiet = 1 ]; then
+                if phone_here; then gone=0; else gone=$((gone + 1)); fi
+                [ $hold -gt 0 ] && hold=$((hold - 1))
+                if [ $gone -ge 2 ]; then
+                    rejoin "the phone has been gone for a minute"
+                elif [ $hold -eq 0 ] && home_in_sight; then
+                    seen=$((seen + 1))
+                    if ! session_up; then
+                        rejoin "home Wi-Fi in sight and no Android Auto session"; hold=20
+                    elif [ $seen -ge 10 ]; then
+                        rejoin "home Wi-Fi in sight for 5 minutes"; hold=20
+                    fi
+                else
+                    seen=0
+                fi
+            elif sta_connected; then
+                away=0; hold=0; idle=0
+                S=$(sta_channel); A=$(ap_channel)
+                if [ -n "$S" ] && [ "$S" != "$(cat $STATE/home_channel 2>/dev/null)" ]; then
+                    mkdir -p $STATE && echo "$S" > $STATE/home_channel
+                fi
+                if [ -n "$S" ] && [ "$S" != "$A" ]; then
+                    miss=$((miss + 1))
+                    if [ $miss -ge 2 ]; then
+                        say 6 "home Wi-Fi on channel $S for a minute (AP on $A): moving the AP"
+                        nmcli con down $CON >/dev/null 2>&1; nmcli con modify $CON 802-11-wireless.channel "$S"; nmcli con up $CON >/dev/null
+                        miss=0
+                    fi
+                else
+                    miss=0
+                fi
+            elif phone_here; then
+                miss=0; idle=0; away=$((away + 1))
+                if [ $away -ge 3 ]; then
+                    say 6 "the phone is connected and home Wi-Fi is not (90 s): wlan0 stops scanning for it"
+                    nmcli device set wlan0 managed no
+                    quiet=1; gone=0; seen=0
+                fi
+            else
+                miss=0; away=0; idle=$((idle + 1))
+                if [ $((idle % 4)) -eq 0 ]; then     # 2 minutes with home down and no phone
+                    [ $idle -eq 4 ] && say 6 "home Wi-Fi down and no phone for 2 minutes: asking NetworkManager to connect (again every 2 minutes)"
+                    home_up
+                fi
+            fi
+            $IW dev uap0 info >/dev/null 2>&1 || up
+        done ;;
+    status)
+        $IW dev | grep -E "Interface|ssid|channel|type"
+        nmcli -t -f DEVICE,STATE device | grep -E "^(wlan0|uap0):"
+        echo "home channel last seen: $(cat $STATE/home_channel 2>/dev/null || echo none)"
+        nmcli -t -f NAME,DEVICE,STATE con show --active
+        [ -s "$HELD" ] && echo "saved networks held back until reboot: $(tr '\n' ' ' < "$HELD")"
+        "$AARECVD" --show-settings --settings "$SETTINGS" --loglevel-file "$LEVELF" 2>/dev/null ;;
+    *) echo "usage: aa-ap up|down|firewall|trial|watch|status"; exit 1 ;;
+esac

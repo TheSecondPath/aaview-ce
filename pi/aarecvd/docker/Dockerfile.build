@@ -1,0 +1,12 @@
+# aarecvd's build image: the aasdk build image (veloaa-aasdk-build:<arch>, aasdk in /opt/aasdk, see README.md)
+# plus what aarecvd itself needs on top of aasdk. The Python, D-Bus and dbus-daemon packages are for the desk
+# tests: test/aarecvd_bt_selftest.py runs a pretend BlueZ on a private bus. build.sh makes the image when it is
+# missing; by hand:
+#   docker build --platform linux/<arch> --build-arg ARCH=<arch> -t veloaa-aarecvd-build:<arch> docker
+ARG ARCH=amd64
+FROM veloaa-aasdk-build:${ARCH}
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libsystemd-dev libcap-dev \
+        python3 python3-dbus python3-gi dbus-daemon openssl \
+    && rm -rf /var/lib/apt/lists/*

@@ -1,0 +1,15 @@
+[Unit]
+Description=veloaa: Android Auto session (aarecvd, on aasdk); rmwork-aa does the Bluetooth start-up (--bt-only)
+After=veloaa-ramfiles.service stick-gadget.service aa-ap.service rmwork-aa.service
+
+[Service]
+# Wi-Fi power saving holds packets for 50-400 ms: off for the AA session's sake
+ExecStartPre=-/usr/sbin/iw dev wlan0 set power_save off
+# Extra options for aarecvd (dev: e.g. AARECVD_ARGS=--status-services); the file need not exist
+EnvironmentFile=-/etc/default/aarecvd
+ExecStart=/usr/local/lib/veloaa/aarecvd $AARECVD_ARGS
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

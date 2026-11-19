@@ -1,0 +1,17 @@
+[Unit]
+Description=velosterAA: the raw mailbox and stream LUN files, in RAM (/run is tmpfs)
+# They're rewritten constantly (the input mailbox 125 times a second, the AA stream ring ~0.4 MB/s, about 1.5 GB an
+# hour) and nothing in them needs to survive a reboot, so they stay off the SD card (wear, power-cut damage).
+DefaultDependencies=no
+After=local-fs.target
+Before=stick-gadget.service rmwork-input.service rmwork-aa.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/mkdir -p /run/veloaa
+ExecStart=/usr/bin/truncate -s 64K /run/veloaa/mailbox.img
+ExecStart=/usr/bin/truncate -s 4M /run/veloaa/stream.img
+
+[Install]
+RequiredBy=stick-gadget.service rmwork-input.service rmwork-aa.service

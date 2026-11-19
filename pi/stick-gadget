@@ -1,0 +1,82 @@
+#!/bin/sh
+# stick-gadget: present /srv/stick.img to the car as a USB flash drive (configfs mass-storage gadget).
+#   stick-gadget up        create the gadget and connect
+#   stick-gadget eject     "unplug": disconnect from the car, after which the image is safe to edit
+#   stick-gadget insert    "plug in" again
+#   stick-gadget reinsert  eject, wait (5 s by default, so CE really dismounts it), insert
+#   stick-gadget down      remove the gadget entirely
+#   stick-gadget status
+set -e
+G=/sys/kernel/config/usb_gadget/stick
+IMG=${STICK_IMG:-/srv/stick.img}
+MAILBOX=${STICK_MAILBOX:-/run/veloaa/mailbox.img}   # LUN 1 if it exists. veloaa-ramfiles.service makes it in RAM
+STREAM=${STICK_STREAM:-/run/veloaa/stream.img}       # LUN 2 if it exists too: the aarecvd-to-aaview stream ring
+udc() { ls /sys/class/udc | head -1; }
+
+up() {
+    modprobe libcomposite
+    mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
+    if [ ! -d $G ]; then
+        mkdir -p $G && cd $G
+        echo 0x1d6b > idVendor          # Linux Foundation
+        echo 0x0104 > idProduct         # multifunction composite gadget
+        echo 0x0100 > bcdDevice
+        echo 0x0200 > bcdUSB
+        mkdir -p strings/0x409
+        echo velosteraa0001 > strings/0x409/serialnumber
+        echo "velosterAA" > strings/0x409/manufacturer
+        echo "AAView CE" > strings/0x409/product
+        mkdir -p configs/c.1/strings/0x409
+        echo "mass storage" > configs/c.1/strings/0x409/configuration
+        echo 250 > configs/c.1/MaxPower
+        mkdir -p functions/mass_storage.0
+        echo 1 > functions/mass_storage.0/stall
+        echo 1 > functions/mass_storage.0/lun.0/removable
+        echo 0 > functions/mass_storage.0/lun.0/ro
+        echo 0 > functions/mass_storage.0/lun.0/cdrom
+        # The optional extra LUNs are raw files that the Pi and the head unit read and write by sector, which
+        # bypasses CE's FAT cache. LUNs can only be added before the function is linked into the config.
+        if [ -f "$MAILBOX" ]; then
+            mkdir -p functions/mass_storage.0/lun.1
+            echo 0 > functions/mass_storage.0/lun.1/removable
+            echo 0 > functions/mass_storage.0/lun.1/ro
+            echo "$MAILBOX" > functions/mass_storage.0/lun.1/file
+            if [ -f "$STREAM" ]; then
+                mkdir -p functions/mass_storage.0/lun.2
+                echo 0 > functions/mass_storage.0/lun.2/removable
+                echo 0 > functions/mass_storage.0/lun.2/ro
+                echo "$STREAM" > functions/mass_storage.0/lun.2/file
+            fi
+        fi
+        ln -s functions/mass_storage.0 configs/c.1/
+    fi
+    insert
+}
+insert() {
+    [ -n "$(cat $G/UDC)" ] || echo "$(udc)" > $G/UDC
+    echo "$IMG" > $G/functions/mass_storage.0/lun.0/file
+}
+eject() {
+    [ -z "$(cat $G/UDC 2>/dev/null)" ] && return 0
+    echo > $G/functions/mass_storage.0/lun.0/file 2>/dev/null || echo 1 > $G/functions/mass_storage.0/lun.0/forced_eject
+    echo "" > $G/UDC
+    sync
+}
+down() {
+    [ -d $G ] || return 0
+    eject
+    rm -f $G/configs/c.1/mass_storage.0
+    [ -d $G/functions/mass_storage.0/lun.2 ] && rmdir $G/functions/mass_storage.0/lun.2
+    [ -d $G/functions/mass_storage.0/lun.1 ] && rmdir $G/functions/mass_storage.0/lun.1
+    rmdir $G/configs/c.1/strings/0x409 $G/configs/c.1 $G/functions/mass_storage.0 $G/strings/0x409 $G
+}
+status() {
+    echo "udc: $(udc)  state: $(cat /sys/class/udc/$(udc)/state)  speed: $(cat /sys/class/udc/$(udc)/current_speed)"
+    [ -d $G ] && echo "gadget bound to: '$(cat $G/UDC)'  lun file: '$(cat $G/functions/mass_storage.0/lun.0/file)'"
+}
+case "$1" in
+    up) up ;; insert) insert ;; eject) eject ;; down) down ;;
+    reinsert) eject; sleep ${2:-5}; insert ;;    # CE notices an unplug within 1-3 s
+    status|"") status ;;
+    *) echo "usage: $0 up|eject|insert|reinsert [secs]|down|status"; exit 1 ;;
+esac

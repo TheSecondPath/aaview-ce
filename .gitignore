@@ -1,0 +1,25 @@
+# Build output
+out/
+pi/aarecvd/out/
+*.obj
+*.pdb
+*.ilk
+*.o
+*.a
+*.so
+*.lib
+*.exp
+*.exe
+*.dll
+[Bb]uild/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# The head unit's TLS certificate and key
+hu.crt
+hu.key
+
+# Python
+__pycache__/
