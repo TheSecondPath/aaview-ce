@@ -184,7 +184,8 @@ session offers the phone no Bluetooth service, so calls stay with the car's own 
 In the car, hold aaview's icon still for 3 seconds. It turns purple and shows "BT", and the Pi is discoverable and
 pairable for 3 minutes. Pair "velosterAA" from the phone's Bluetooth settings. The icon then shows a 6-digit code;
 confirm on the phone only if it shows the same code. Pairing closes 20 seconds after a phone pairs, after the 3
-minutes, or when the icon is held again. This also works during a session, to add a second phone.
+minutes, or when the icon is held again. Only one device can pair each time pairing is opened. This also works
+during a session, to add a second phone.
 
 Internally, aaview sends event 9 (x = 1 to open, 0 to close), aarecvd passes "pair on" or "pair off" to
 `aarecvd --bt-only`, and that writes `/run/veloaa/pairing` (until, passkey) while pairing is open. aarecvd puts

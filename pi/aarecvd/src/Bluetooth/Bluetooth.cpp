@@ -421,6 +421,7 @@ void Bluetooth::startPairing(const char *why) {
   const uint64_t gen = ++pairGen_;
   const bool again = pairing_;
   pairing_ = true;
+  pairingDevice_.clear();
   pairUntil_ = monotonicSeconds() + PAIR_SECONDS;
   setAdapterProperty("Pairable", 'b', 1);
   setAdapterProperty("DiscoverableTimeout", 'u', PAIR_SECONDS);
@@ -436,6 +437,7 @@ void Bluetooth::startPairing(const char *why) {
 void Bluetooth::stopPairing(const char *why) {
   if (!pairing_) return;
   pairing_ = false;
+  pairingDevice_.clear();
   ++pairGen_;                                    // the open window's timers now do nothing
   setAdapterProperty("Pairable", 'b', 0);
   setAdapterProperty("Discoverable", 'b', 0);
@@ -451,6 +453,7 @@ void Bluetooth::publishPairing(uint32_t passkey) {
 void Bluetooth::pairedWith(const std::string &device) {
   // Bonding finishes after the agent's answer. Give it 20 s, then close so no second phone pairs by accident.
   const uint64_t gen = pairGen_;
+  pairingDevice_ = device;
   AA_INFO("bt: %s is pairing: pairing closes in 20 s", device.c_str());
   after(20000, [this, gen]() {
     if (pairing_ && gen == pairGen_) stopPairing("a phone paired");
@@ -459,10 +462,15 @@ void Bluetooth::pairedWith(const std::string &device) {
 
 // ---------------- the pairing agent ----------------
 
-int Bluetooth::refuse(const char *what, const std::string &device, sd_bus_error *e) {
-  AA_WARN("bt: %s from %s refused (pairing is only open with --pair or a 3 s hold on the icon)", what,
-          device.c_str());
+int Bluetooth::refuse(const char *what, const std::string &device, sd_bus_error *e, const char *why) {
+  AA_WARN("bt: %s from %s refused (%s)", what, device.c_str(), why);
   return sd_bus_error_set(e, "org.bluez.Error.Rejected", "not pairing");
+}
+
+// Only the first device to ask can pair until pairing closes.
+bool Bluetooth::otherDevice(const std::string &device) {
+  if (pairingDevice_.empty()) pairingDevice_ = device;
+  return pairingDevice_ != device;
 }
 
 int Bluetooth::agentRelease(sd_bus_message *m, void *, sd_bus_error *) { return sd_bus_reply_method_return(m, ""); }
@@ -473,6 +481,7 @@ int Bluetooth::agentRequestPinCode(sd_bus_message *m, void *u, sd_bus_error *e) 
   int r = sd_bus_message_read(m, "o", &dev);
   if (r < 0) return r;
   if (!bt->pairing_) return bt->refuse("PIN request", dev, e);
+  if (bt->otherDevice(dev)) return bt->refuse("PIN request", dev, e, "pairing is held for another device");
   AA_INFO("bt: PIN requested by %s: using 0000", dev);
   bt->pairedWith(dev);
   return sd_bus_reply_method_return(m, "s", "0000");
@@ -484,6 +493,7 @@ int Bluetooth::agentRequestPasskey(sd_bus_message *m, void *u, sd_bus_error *e) 
   int r = sd_bus_message_read(m, "o", &dev);
   if (r < 0) return r;
   if (!bt->pairing_) return bt->refuse("passkey request", dev, e);
+  if (bt->otherDevice(dev)) return bt->refuse("passkey request", dev, e, "pairing is held for another device");
   return sd_bus_reply_method_return(m, "u", static_cast<uint32_t>(0));
 }
 
@@ -514,6 +524,9 @@ int Bluetooth::agentRequestConfirmation(sd_bus_message *m, void *u, sd_bus_error
   int r = sd_bus_message_read(m, "ou", &dev, &passkey);
   if (r < 0) return r;
   if (!bt->pairing_) return bt->refuse(log::fmt("pairing (passkey %06u)", passkey).c_str(), dev, e);
+  if (bt->otherDevice(dev))
+    return bt->refuse(log::fmt("pairing (passkey %06u)", passkey).c_str(), dev, e,
+                      "pairing is held for another device");
   AA_INFO("bt: pairing %s, passkey %06u: accepted (check it matches the phone)", dev, passkey);
   bt->publishPairing(passkey);                   // aaview shows it; the phone asks to confirm the same code
   bt->trust(dev);
@@ -527,6 +540,7 @@ int Bluetooth::agentRequestAuthorization(sd_bus_message *m, void *u, sd_bus_erro
   int r = sd_bus_message_read(m, "o", &dev);
   if (r < 0) return r;
   if (!bt->pairing_) return bt->refuse("pairing", dev, e);
+  if (bt->otherDevice(dev)) return bt->refuse("pairing", dev, e, "pairing is held for another device");
   bt->trust(dev);
   bt->pairedWith(dev);
   return sd_bus_reply_method_return(m, "");

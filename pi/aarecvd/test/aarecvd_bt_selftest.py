@@ -58,6 +58,7 @@ REFERENCE = {
 PHONE = '/org/bluez/hci0/dev_11_22_33_44_55_66'
 KBD = '/org/bluez/hci0/dev_AA_BB_CC_DD_EE_01'
 STRANGER = '/org/bluez/hci0/dev_22_33_44_55_66_77'
+SECOND = '/org/bluez/hci0/dev_33_44_55_66_77_88'
 AP = dict(ssid='VeloAA-test', key='test-key-123', bssid='02:00:00:00:00:01', ip='10.42.0.1')
 
 RESULTS = []
@@ -558,6 +559,11 @@ def scenario_hold(kind, binary, bz, address, tmp):
         p = r.pairing()
         check('hold: a phone pairing: accepted, its code in the file for aaview', res == 'ok' and p and p[1] == 123456,
               (res, p))
+        rej = r.agent('RequestConfirmation', dbus.ObjectPath(SECOND), dbus.UInt32(654321))[0]
+        p = r.pairing()
+        check('hold: a second device is refused while the first is pairing',
+              rej == 'org.bluez.Error.Rejected' and p and p[1] == 123456 and r.logged('held for another device', 2),
+              (rej, p))
         mark = time.time()
         r.notify('pair off')
         ok = wait_for(lambda: r.pairing() is None, 5)
