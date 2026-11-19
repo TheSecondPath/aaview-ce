@@ -24,6 +24,7 @@ EV_FMT = 'llHHi'                     # struct input_event on 64-bit Linux
 EV_SIZE = struct.calcsize(EV_FMT)
 EV_KEY, EV_REL, EV_ABS = 1, 2, 3
 EVIOCGRAB = 0x40044590               # _IOW('E', 0x90, int)
+EVIOCGBIT_ABS = 0x80084523           # _IOC(_IOC_READ, 'E', 0x20 + EV_ABS, 8): the absolute axes a device has
 REL_X, REL_Y = 0, 1
 POINTER_SCALE = 2                    # touchpad counts -> pointer pixels / turning units
 STICK_SPEED = 18                     # gamepad right stick at full deflection: pointer pixels per update
@@ -85,6 +86,14 @@ class Dev:
         self.presses = [0, 0, 0]
         self.abs = {}
         self.absinfo = {}
+        # pads without RX put the right stick on Z/RZ; on the others Z/RZ are the triggers
+        bits = bytearray(8)
+        try:
+            fcntl.ioctl(self.fd, EVIOCGBIT_ABS, bits)
+        except OSError:
+            pass
+        axes = int.from_bytes(bits, 'little')
+        self.z_stick = bool(axes >> ABS_RZ & 1) and not axes >> ABS_RX & 1
 
 
 def abs_range(path, code):
@@ -184,8 +193,8 @@ def main():
             if hx < 0: st.add(VK['LEFT'])
             if hx > 0: st.add(VK['RIGHT'])
             d.stick = st
-            rx = norm(ABS_RX) if ABS_RX in d.abs else (norm(ABS_Z) if ABS_RZ in d.abs else 0.0)
-            ry = norm(ABS_RY) if ABS_RY in d.abs else (norm(ABS_RZ) if ABS_RZ in d.abs and ABS_RX not in d.abs else 0.0)
+            rx = norm(ABS_RX) if ABS_RX in d.abs else (norm(ABS_Z) if d.z_stick else 0.0)
+            ry = norm(ABS_RY) if ABS_RY in d.abs else (norm(ABS_RZ) if d.z_stick else 0.0)
             if abs(rx) > 0.15: mx += int(rx * STICK_SPEED)
             if abs(ry) > 0.15: my += int(ry * STICK_SPEED)
         held, buttons, presses = set(), 0, [0, 0, 0]
