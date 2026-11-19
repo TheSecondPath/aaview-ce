@@ -9,8 +9,8 @@ The process is Bluetooth handshake -> nudge to Wi-Fi access point for the sessio
 A small program on the head unit, started from the USB stick, shows the phone's screen, plays its sound and sends back touches, keys and the
 cabin microphone. Flow:
 
-Android phone <--All--> Pi Android Auto receiver <--video,audio,inputs--> USB Stick(RAM partition) <--audio,video,touch--> aaview
-                                                                                                         ^<--buttons,lights,signals-->matmessage
+Android phone<-All->Pi Android Auto receiver<-video,audio,inputs->USB Stick(RAM partition)<-audio,video,touch->aaview
+                                                                                          ↖︎-buttons,lights,signals->matmessage
 
 ## Features
 
