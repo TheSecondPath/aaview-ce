@@ -1,16 +1,20 @@
-# velosterAA
+# velosterAA (Beta builds)
 
 Wireless Android Auto on the factory head unit of a 2014 Hyundai Veloster (base, non-nav; LG, Windows CE 6, MIPS),
 using a Raspberry Pi Zero 2 W, however a pi that has 5ghz wifi may be preferable for performance and stability reasons.
 
-The Pi plugs into the car's USB port. To the head unit it is a USB stick, and to the phone it is a wireless Android Auto receiver: Bluetooth handshake -> then its own Wi-Fi access point for the session. 
+The Pi plugs into the car's USB port. To the head unit it is a USB stick, and to the phone it is a wireless Android Auto receiver.
+The process is Bluetooth handshake -> nudge to Wi-Fi access point for the session -> Android Auto over wifi.
 
-A small program on the head unit, started from the  USB stick, shows the phone's screen, plays its sound and sends back touches, keys and the
-cabin microphone.
+A small program on the head unit, started from the USB stick, shows the phone's screen, plays its sound and sends back touches, keys and the
+cabin microphone. Flow:
+
+Android phone <-- All --> Pi Android Auto receiver <-- video, audio, inputs --> USB Stick (RAM partition) <---- audio, video, touch  ----> aaview
+                                                                                                         ^<-- buttons, lights, signals --> matmsg
 
 ## Features
 
-- Wireless Android Auto on the car's own screen without any additional apk and only minimal hardware additions.
+- Wireless Android Auto on the car's own screen without any additional APK and only minimal hardware additions.
 - Touch, music and navigation, navigation audio ques, and the dash and steering-wheel keys.
 - Day and night mode follow the headlights.
 - The car's own phone calls keep working, and music comes back after a call. (still beta)
@@ -27,7 +31,9 @@ cabin microphone.
 
 ## Install and run
 
-There will be prebuilt releases. to build the two halves yourself:
+There are prebuilt releases now and I will make a more generalized version so this may work with any Windows CE headunit with 
+some addition pieces for each car or version. 
+To build the two halves yourself:
 
 ### 1. Build the receiver (any PC with Docker)
 
@@ -83,8 +89,9 @@ Then depending on the car and firmware version enter the explorer mode code (201
 4. Open **Test Mode** the same way, (2014 veloster code `95889588`), and switch **ISV** on.
 5. Restart the head unit.
 
-A cyan strip shows at the bottom left for 30 seconds, and the Android Auto icon appears at the top center of the screen. It is grey
-with no Pi, blue while it waits for the phone, and green when the phone is connected and purple in pairing mode (which you hold down on the icon for 3 seconds to start pairing).
+A cyan strip shows at the bottom left for a short time, and the Android Auto icon appears at the top center of the screen. It is grey
+with no Pi, blue while it waits for the phone, and green when the phone is connected and purple in pairing mode (which you hold down 
+on the icon for 3 seconds to start pairing).
 
 **To undo:** in Test Mode switch ISV off, then delete `\Storage Card\ISV`. Nothing else on the head unit changes.
 
@@ -97,11 +104,13 @@ with no Pi, blue while it waits for the phone, and green when the phone is conne
 
 ## Subsequent connections
 
-The Pi starts with the car. As long as the phone's Bluetooth and Wi-Fi are on, it connects by itself, usually within a minute of starting the car.
+The Pi starts with the car. As long as the phone's Bluetooth and Wi-Fi are on, it connects by itself, usually within a minute 
+of starting the car.
 
 ## Configurations
 
-Settings live in `veloaa.txt` on the SD card's boot partition. That is the `bootfs` drive when the card is in a PC, and `/boot/firmware/veloaa.txt` on the Pi. Changes take effect the next time the Pi starts.
+Settings live in `veloaa.txt` on the SD card's boot partition. That is the `bootfs` drive when the card is in a PC, and 
+`/boot/firmware/veloaa.txt` on the Pi. Changes take effect the next time the Pi starts.
 
 | Key | Values | Default | What it does |
 |---|---|---|---|
@@ -110,7 +119,8 @@ Settings live in `veloaa.txt` on the SD card's boot partition. That is the `boot
 | `log_level` | `error`, `warning`, `info`, `debug` | `info` | how much goes into the logs |
 | `set_clock` | `on`, `off` | `on` | set the head unit's clock from the Pi's (only with home Wi-Fi) |
 
-The Wi-Fi password is not kept in this file. Set the network up once on the Pi itself, either in Raspberry Pi Imager when you write the card or with `sudo nmcli device wifi connect <name> --ask`. `pi/README.md` has more on the settings.
+The Wi-Fi password is not kept in this file. Set the network up once on the Pi itself, either in Raspberry Pi Imager 
+when you write the card or with `sudo nmcli device wifi connect <name> --ask`. `pi/README.md` has more on the commands.
 
 
 ### Getting logs
@@ -123,18 +133,21 @@ The Wi-Fi password is not kept in this file. Set the network up once on the Pi i
   journalctl -u aarecvd -u rmwork-aa -u aa-ap -b
   ```
 
-  To read the head unit's log there, mount the stick image read-only:
+  To read the head unit's log on the pi, mount the stick image read-only:
 
   ```
-  sudo mount -o ro,loop /srv/stick.img /mnt && cat /mnt/aaview/aaview_log.txt; sudo umount /mnt
+  sudo mount -o ro,loop /srv/stick.img /mnt
+  cat /mnt/aaview/aaview_log.txt
+  sudo umount /mnt
   ```
 
-LG's firmware and aasdk's source are not in this repo. aasdk comes with a head-unit certificate for Android Auto's TLS handshake. To use a different one, put it in `/etc/aarecv/hu.crt` and `hu.key` on the Pi, and never commit either file.
+LG's firmware and aasdk's source are not in this repo. aasdk comes with a head-unit certificate for Android Auto's TLS 
+handshake. To use a different one, put it in `/etc/aarecv/hu.crt` and `hu.key` on the Pi, and never commit either file to the repo.
 
 ## Limitations
 
-This has been tested in one car with one phone. Still being tested: the assistant's microphone, the switch back to the car's Bluetooth audio when the phone leaves, and occasional audio stalls. Other head units, cars and phones may
-behave differently.
+This has been tested in one car with one phone. Still being tested: the assistant's microphone, the switch back to the 
+car's Bluetooth audio when the phone leaves, and occasional audio stalls. Other head units, cars and phones may behave differently.
 
 ## License
 
