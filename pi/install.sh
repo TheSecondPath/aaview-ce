@@ -3,13 +3,13 @@
 # For a Pi Zero 2 W with Raspberry Pi OS Lite (64-bit, trixie; NetworkManager is needed). Run on the Pi, from this folder:
 #
 #   sudo sh install.sh              the release build: the phone's access point (aa-ap), the receiver (aarecvd:
-#                                   aarecvd.service has the phone's session, rmwork-aa its Bluetooth start-up)
+#                                   aarecvd.service has the phone's session, veloaa-aa its Bluetooth start-up)
 #                                   and the three USB drives the car sees (stick-gadget). The Pi's Wi-Fi is then for
 #                                   the phone only: after the reboot it is on NO network, so no SSH over Wi-Fi.
 #   sudo sh install.sh --keep-wifi  the same, and the Pi keeps joining the Wi-Fi network it is on now whenever that
 #                                   is in range (writes home_wifi=on and the network's name into veloaa.txt)
-#   sudo sh install.sh --dev        the dev build: all of that with --keep-wifi, plus the web page (rmwork-web, vjob)
-#                                   and the game-controller input service (rmwork-input), and log level debug
+#   sudo sh install.sh --dev        the dev build: all of that with --keep-wifi, plus the web page (veloaa-web, vjob)
+#                                   and the game-controller input service (veloaa-input), and log level debug
 #
 #   --force        replace installed unit files that differ from the ones here (the old ones are kept in
 #                  /var/lib/veloaa/replaced)
@@ -50,8 +50,8 @@ done
 [ -n "$ROOT" ] || [ "$(id -u)" = 0 ] || die "needs root: sudo sh $0 ..."
 
 RELEASE_FILES="aa-ap stick-gadget veloaa.txt.example 60-veloaa-journald.conf
-    veloaa-ramfiles.service stick-gadget.service aa-ap.service rmwork-aa.service aarecvd.service"
-DEV_FILES="vjob rmwork_web.py rmwork_input.py rmwork-web.service rmwork-input.service"
+    veloaa-ramfiles.service stick-gadget.service aa-ap.service veloaa-aa.service aarecvd.service"
+DEV_FILES="vjob veloaa_web.py veloaa_input.py veloaa-web.service veloaa-input.service"
 for F in $RELEASE_FILES $([ $DEV = 1 ] && echo "$DEV_FILES"); do
     [ -f "$HERE/$F" ] || die "$F is not in $HERE: run this from a complete copy of pi"
 done
@@ -113,6 +113,9 @@ a6b0a0bb967acb688f06eef9e23b999a veloaa-ramfiles.service
 40cb1d533c5ddc9765ce44347ce7ee77 rmwork-aa.service
 088dde61c0510827d5ce683eb809c848 aarecvd.service
 c2eb51f1965881767c47cfc5b605c02c stick-gadget.service
+6622329c9bd9a527016e469f801ee1e2 rmwork-aa.service
+702138d5d9c94338b8a67cddbc10b8a2 rmwork-web.service
+7eeccc4f79a811d0e338fde19a5d984e rmwork-input.service
 "
 # old_unit <name> <file>: true if the installed file is one of OLD_UNITS
 old_unit() {
@@ -194,20 +197,35 @@ put 755 "$AARECVD" /usr/local/lib/veloaa/aarecvd
 put 644 60-veloaa-journald.conf /etc/systemd/journald.conf.d/60-veloaa.conf
 if [ $DEV = 1 ]; then
     put 755 vjob /usr/local/bin/vjob
-    put 755 rmwork_web.py "$(where rmwork-web.service rmwork_web.py)"
-    put 755 rmwork_input.py "$(where rmwork-input.service rmwork_input.py)"
+    put 755 veloaa_web.py "$(where veloaa-web.service veloaa_web.py)"
+    put 755 veloaa_input.py "$(where veloaa-input.service veloaa_input.py)"
     mkdir -p "$ROOT/mnt/stick"
 fi
 
 say "== services"
-UNITS="veloaa-ramfiles.service stick-gadget.service aa-ap.service rmwork-aa.service aarecvd.service"
-[ $DEV = 0 ] || UNITS="$UNITS rmwork-web.service rmwork-input.service"
+UNITS="veloaa-ramfiles.service stick-gadget.service aa-ap.service veloaa-aa.service aarecvd.service"
+[ $DEV = 0 ] || UNITS="$UNITS veloaa-web.service veloaa-input.service"
 for UNIT in $UNITS; do
     unit "$UNIT"
 done
-if [ $DEV = 0 ] && { [ -f "$ROOT/etc/systemd/system/rmwork-web.service" ] ||
-                     [ -f "$ROOT/etc/systemd/system/rmwork-input.service" ]; }; then
-    say "  (this Pi has the dev build's rmwork-web / rmwork-input: left as they are. --dev keeps them up to date)"
+# These services used to be called rmwork-*. Once the new one is installed, the old one is disabled and put aside.
+for UNIT in $UNITS; do
+    case $UNIT in veloaa-aa.service | veloaa-web.service | veloaa-input.service) ;; *) continue ;; esac
+    OLD=rmwork-${UNIT#veloaa-}
+    [ -f "$ROOT/etc/systemd/system/$OLD" ] || continue
+    systemctl disable "$OLD" >/dev/null 2>&1 || warn "could not disable $OLD"
+    NOTE=
+    old_unit "$OLD" "$ROOT/etc/systemd/system/$OLD" || NOTE=" (it had changes of its own)"
+    install -D -m 644 "$ROOT/etc/systemd/system/$OLD" "$ROOT/var/lib/veloaa/replaced/$OLD"
+    rm -f "$ROOT/etc/systemd/system/$OLD"
+    case $OLD in rmwork-web.service) rm -f "$ROOT/usr/local/bin/rmwork_web.py" ;;
+                 rmwork-input.service) rm -f "$ROOT/usr/local/bin/rmwork_input.py" ;; esac
+    say "  renamed     /etc/systemd/system/$OLD to $UNIT$NOTE (the old one: /var/lib/veloaa/replaced/$OLD)"
+done
+if [ $DEV = 0 ] && { [ -f "$ROOT/etc/systemd/system/veloaa-web.service" ] ||
+                     [ -f "$ROOT/etc/systemd/system/veloaa-input.service" ] ||
+                     [ -f "$ROOT/etc/systemd/system/rmwork-web.service" ]; }; then
+    say "  (this Pi has the dev build's veloaa-web / veloaa-input: left as they are. --dev keeps them up to date)"
 fi
 systemctl daemon-reload
 # shellcheck disable=SC2086
@@ -245,10 +263,14 @@ if [ $DEV = 1 ]; then
         echo debug > "$ROOT/etc/aarecv/loglevel"
         say "  installed   /etc/aarecv/loglevel (debug)"
     fi
-    if [ ! -s "$ROOT/etc/rmwork-web.pass" ]; then
+    if [ ! -s "$ROOT/etc/veloaa-web.pass" ] && [ -s "$ROOT/etc/rmwork-web.pass" ]; then
+        mv "$ROOT/etc/rmwork-web.pass" "$ROOT/etc/veloaa-web.pass"
+        say "  renamed     /etc/rmwork-web.pass to /etc/veloaa-web.pass (the same password)"
+    fi
+    if [ ! -s "$ROOT/etc/veloaa-web.pass" ]; then
         # a random 16-character password (base64 of urandom, without / + =)
-        (umask 077; head -c 48 /dev/urandom | base64 -w 0 | tr -d '/+=' | head -c 16 > "$ROOT/etc/rmwork-web.pass")
-        say "  installed   /etc/rmwork-web.pass (a new random password for the web page: sudo cat /etc/rmwork-web.pass)"
+        (umask 077; head -c 48 /dev/urandom | base64 -w 0 | tr -d '/+=' | head -c 16 > "$ROOT/etc/veloaa-web.pass")
+        say "  installed   /etc/veloaa-web.pass (a new random password for the web page: sudo cat /etc/veloaa-web.pass)"
     fi
 fi
 
@@ -280,8 +302,8 @@ fi
 todo "Reboot: sudo reboot"
 todo "Pair the phone once: in the car, hold the Android Auto icon on the head unit still for 3 s (it turns purple),"
 say "     then pair with the Pi from the phone's Bluetooth settings within 3 minutes. When the code on the icon"
-say "     matches the phone's, confirm on the phone and tap the icon. Over SSH instead: sudo systemctl stop rmwork-aa; sudo /usr/local/lib/veloaa/aarecvd --bt-only --pair"
-say "     (then Ctrl-C and sudo systemctl start rmwork-aa)"
+say "     matches the phone's, confirm on the phone and tap the icon. Over SSH instead: sudo systemctl stop veloaa-aa; sudo /usr/local/lib/veloaa/aarecvd --bt-only --pair"
+say "     (then Ctrl-C and sudo systemctl start veloaa-aa)"
 
 # Say plainly what the services will read, since it decides whether the Pi is reachable after the reboot.
 HOMEWIFI=off

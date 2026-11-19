@@ -970,7 +970,7 @@ static BOOL nextJob(WCHAR *out)
 }
 
 /* ---------- Bluetooth keyboard/touchpad/gamepad from the Pi ----------
- * The Pi (pi/rmwork_input.py) writes "RMI2" frames to sector 0 of the 128-sector mailbox store (RMD0):
+ * The Pi (pi/veloaa_input.py) writes "RMI2" frames to sector 0 of the 128-sector mailbox store (RMD0):
  * seq, cumulative pointer x/y, button bits, and the Windows virtual keys held. We poll it every 10 ms and replay
  * changes: keys with keybd_event to whatever window has the focus, pointer motion and clicks with mouse_event. */
 

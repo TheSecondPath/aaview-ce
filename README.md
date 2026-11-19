@@ -129,7 +129,7 @@ when you write the card or with `sudo nmcli device wifi connect <name> --ask`. `
 - **On the Pi:** with home Wi-Fi on, SSH in and run:
 
   ```
-  journalctl -u aarecvd -u rmwork-aa -u aa-ap -b
+  journalctl -u aarecvd -u veloaa-aa -u aa-ap -b
   ```
 
   To read the head unit's log on the pi, mount the stick image read-only:

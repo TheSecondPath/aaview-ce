@@ -103,13 +103,13 @@ The last case points at a UART device that does not exist, and the test refuses 
 
 `install.sh` (in `pi/`) puts the arm64 build in `/usr/local/lib/veloaa/aarecvd` and enables two units:
 
-- `rmwork-aa.service` runs `aarecvd --bt-only`, the Bluetooth start-up only. It binds `/run/veloaa/aarecv.sock`,
+- `veloaa-aa.service` runs `aarecvd --bt-only`, the Bluetooth start-up only. It binds `/run/veloaa/aarecv.sock`,
   uses the session's "session up" and "session ended" messages for its nudges and auto-connects, and connects to
   the phone on "icon <state>".
 - `aarecvd.service` runs the session as root, since it writes `/run/veloaa/stream.img`. Extra options go in
   `AARECVD_ARGS=` in `/etc/default/aarecvd`, e.g. `--status-services`.
 
-Logs: `journalctl -u aarecvd -u rmwork-aa`.
+Logs: `journalctl -u aarecvd -u veloaa-aa`.
 
 ### Pairing a phone
 
@@ -119,10 +119,10 @@ the phone pairs, the code shows on the icon. If it matches the phone's, confirm 
 Over SSH:
 
 ```
-sudo systemctl stop rmwork-aa
+sudo systemctl stop veloaa-aa
 sudo /usr/local/lib/veloaa/aarecvd --bt-only --pair    # discoverable and pairable for 3 minutes; logs the passkey
 # pair from the phone, tap the icon when the codes match, then Ctrl-C
-sudo systemctl start rmwork-aa
+sudo systemctl start veloaa-aa
 ```
 
 The icon hold reaches `--bt-only` as "pair on" or "pair off" on its notify socket. While pairing is open it

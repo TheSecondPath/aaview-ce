@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rmwork_web: a small web page on the Pi for the head-unit test rig (Python standard library only).
+"""veloaa_web: a small web page on the Pi for the head-unit test rig (Python standard library only).
 
   /               camera view of the head-unit screen + vagent command box + job history
   /stream.mjpg    live MJPEG from the Pi camera (one rpicam-vid process, shared by all viewers)
@@ -7,14 +7,14 @@
   POST /job       run vagent commands through vjob, one job at a time
   /jobs.json      job queue and results
 
-Basic auth: user "veloaa", password from /etc/rmwork-web.pass (one line).
+Basic auth: user "veloaa", password from /etc/veloaa-web.pass (one line).
 """
 import base64, html, json, subprocess, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 PORT = 8080
-PASS_FILE = '/etc/rmwork-web.pass'
+PASS_FILE = '/etc/veloaa-web.pass'
 CAM_CMD = ['rpicam-vid', '-n', '-t', '0', '--codec', 'mjpeg', '--width', '800', '--height', '600',
            '--framerate', '8', '--shutter', '6000', '--gain', '1', '--awb', 'indoor', '--rotation', '180',
            '-q', '70', '-o', '-']

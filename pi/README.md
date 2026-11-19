@@ -8,7 +8,7 @@ Android Auto receiver. On the dev build it also points a camera at the screen.
 | | Release build | Dev build (`velosterAA`) |
 |---|---|---|
 | For | anyone's car: Android Auto and nothing else | working on the project |
-| Pi services | `veloaa-ramfiles`, `stick-gadget`, `aa-ap`, `rmwork-aa`, `aarecvd` | the same, plus `rmwork-web` (web page, `vjob`) and `rmwork-input` (game-controller input) |
+| Pi services | `veloaa-ramfiles`, `stick-gadget`, `aa-ap`, `veloaa-aa`, `aarecvd` | the same, plus `veloaa-web` (web page, `vjob`) and `veloaa-input` (game-controller input) |
 | The stick | `isv\launch.txt` starts `\MD\aaview\aaview.exe` | `isv\launch.txt` starts `\MD\vagent\vagent.exe`, which starts aaview from `autostart.txt` |
 | On the stick | aaview, the launcher to copy by hand, a readme | also vagent and its jobs, the test tools |
 | Home Wi-Fi | off unless `veloaa.txt` says otherwise | on |
@@ -125,7 +125,7 @@ aarecvd/build.sh alltest        # all of them
 ## The stick
 
 `stick-gadget` (installed in `/usr/local/sbin`) presents three USB drives to the car: the stick image
-`/srv/stick.img`, the input mailbox and the stream. The stick image is a 2 GB FAT32 volume labelled RMWORK.
+`/srv/stick.img`, the input mailbox and the stream. The stick image is a 2 GB FAT32 volume labelled VELOSTERAA.
 Windows CE mounts it as `\MD`. `stick-gadget.service` runs `stick-gadget up` at boot.
 
 ```
@@ -154,7 +154,7 @@ part-way, it unmounts the image and plugs the stick back into the car before exi
 ### Mailbox and stream in RAM
 
 `/run/veloaa/mailbox.img` (64 KB) and `/run/veloaa/stream.img` (4 MB) are created at boot by
-`veloaa-ramfiles.service`, which runs before `stick-gadget`, `rmwork-input`, `rmwork-aa` and `aarecvd`. The mailbox
+`veloaa-ramfiles.service`, which runs before `stick-gadget`, `veloaa-input`, `veloaa-aa` and `aarecvd`. The mailbox
 is rewritten 125 times a second and the stream carries about 0.4 MB/s, so keeping them in RAM saves the SD card
 from constant writes. Nothing in them needs to survive a reboot.
 
@@ -164,10 +164,10 @@ from constant writes. Nothing in them needs to survive a reboot.
 aasdk; the source and details are in `aarecvd/`. Its screen is `apps/aaview` on the head unit. It runs as two
 services, the way OpenAuto runs `btservice` next to `autoapp`:
 
-- `rmwork-aa` runs `aarecvd --bt-only`: Bluetooth pairing, waking the phone and telling it which Wi-Fi to join.
+- `veloaa-aa` runs `aarecvd --bt-only`: Bluetooth pairing, waking the phone and telling it which Wi-Fi to join.
 - `aarecvd` runs the Android Auto session itself.
 
-Logs: `journalctl -u aarecvd -u rmwork-aa -f`.
+Logs: `journalctl -u aarecvd -u veloaa-aa -f`.
 
 ### Bluetooth
 
@@ -196,10 +196,10 @@ this in the stream header (flags bit 4, the code at byte 52).
 Over SSH instead:
 
 ```
-sudo systemctl stop rmwork-aa
+sudo systemctl stop veloaa-aa
 sudo /usr/local/lib/veloaa/aarecvd --bt-only --pair    # 3 minutes; logs the passkey
 # pair the Pi from the phone, tap the icon when the codes match, then Ctrl-C
-sudo systemctl start rmwork-aa
+sudo systemctl start veloaa-aa
 ```
 
 ### Reconnecting
@@ -266,7 +266,7 @@ what went wrong or was slow) and `error`. The level is taken from the first of:
 
 aarecvd checks every 5 seconds and aa-ap every 30 seconds, so nothing needs restarting. aaview follows aarecvd's
 level for its own log on the stick (header flags bits 16-17). Each line carries its syslog priority, so
-`journalctl -u aarecvd -u rmwork-aa -p warning` (or `-u aa-ap`) shows only warnings and errors at any level.
+`journalctl -u aarecvd -u veloaa-aa -p warning` (or `-u aa-ap`) shows only warnings and errors at any level.
 
 ### Journal
 
@@ -276,7 +276,7 @@ power. `install.sh` installs `60-veloaa-journald.conf` as `/etc/systemd/journald
 
 ```
 journalctl --list-boots
-journalctl -b -1 -u aarecvd -u rmwork-aa
+journalctl -b -1 -u aarecvd -u veloaa-aa
 ```
 
 ## The phone's access point (aa-ap)
@@ -338,10 +338,10 @@ returns.
 
 ## Dev build extras
 
-### Web page (`rmwork_web.py`)
+### Web page (`veloaa_web.py`)
 
 Open `http://velosterAA.local:8080/` (or the Pi's address on the home network). The login is `veloaa` and the
-password is in `/etc/rmwork-web.pass`. It runs as `rmwork-web.service` (as root, starting at boot) and uses only
+password is in `/etc/veloaa-web.pass`. It runs as `veloaa-web.service` (as root, starting at boot) and uses only
 Python's standard library.
 
 - A live camera view of the head unit's screen at `/stream.mjpg` (800x600 at about 8 fps, fixed exposure, rotated
@@ -351,9 +351,9 @@ Python's standard library.
   `--quit-aaview` on the Pi, then aaview on the head unit), AA log, Processes, Memory and Start MyShell. Jobs run
   one at a time through `vjob` (about 10 seconds each), and the page shows the last 30 with their output.
 
-### Game-controller input (`rmwork_input.py`)
+### Game-controller input (`veloaa_input.py`)
 
-`rmwork-input.service` grabs each input device for itself (EVIOCGRAB), so its keys reach only the head unit and
+`veloaa-input.service` grabs each input device for itself (EVIOCGRAB), so its keys reach only the head unit and
 not the Pi's console. Without that, Ctrl+Alt+Del (for the head unit's task manager) would reboot the Pi.
 
 ### Camera

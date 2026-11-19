@@ -2,7 +2,7 @@
 Description=velosterAA: Wi-Fi access point for the phone (wireless Android Auto)
 After=NetworkManager.service
 Wants=NetworkManager.service
-Before=rmwork-aa.service
+Before=veloaa-aa.service
 
 [Service]
 ExecStart=/usr/local/sbin/aa-ap watch

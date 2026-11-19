@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rmwork_input: Bluetooth keyboards, touchpads and gamepads on the Pi -> the head unit, via the mailbox LUN.
+"""veloaa_input: Bluetooth keyboards, touchpads and gamepads on the Pi -> the head unit, via the mailbox LUN.
 
 Reads every /dev/input/event* except HDMI ones, rescanning every 2 s so devices can come and go, and writes the
 state into sector 0 of /run/veloaa/mailbox.img, which the head unit sees as raw store RMD0. vagent polls it and
