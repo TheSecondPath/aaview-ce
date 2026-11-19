@@ -1,7 +1,7 @@
 # velosterAA (Beta builds)
 
 Wireless Android Auto on the factory head unit of a 2014 Hyundai Veloster (base, non-nav; LG, Windows CE 6, MIPS),
-using a Raspberry Pi Zero 2 W, however a pi that has 5ghz wifi may be preferable for performance and stability reasons.
+using a Raspberry Pi Zero 2 W, however a pi that has 5ghz wifi may be preferable for performance and stability reasons. Most pi's will not have enough power from the USB port and will need a second power source in PWR.
 
 The Pi plugs into the car's USB port. To the head unit it is a USB stick, and to the phone it is a wireless Android Auto receiver.
 The process is Bluetooth handshake -> nudge to Wi-Fi access point for the session -> Android Auto over wifi.
@@ -9,15 +9,15 @@ The process is Bluetooth handshake -> nudge to Wi-Fi access point for the sessio
 A small program on the head unit, started from the USB stick, shows the phone's screen, plays its sound and sends back touches, keys and the
 cabin microphone. Flow:
 
-Android phone <-- All --> Pi Android Auto receiver <-- video, audio, inputs --> USB Stick (RAM partition) <---- audio, video, touch  ----> aaview
-                                                                                                         ^<-- buttons, lights, signals --> matmsg
+Android phone <--All--> Pi Android Auto receiver <--video,audio,inputs--> USB Stick(RAM partition) <--audio,video,touch--> aaview
+                                                                                                         ^<--buttons,lights,signals-->matmessage
 
 ## Features
 
 - Wireless Android Auto on the car's own screen without any additional APK and only minimal hardware additions.
-- Touch, music and navigation, navigation audio ques, and the dash and steering-wheel keys.
+- Touch, music and navigation, navigation audio cues, and the dash and steering-wheel keys.
 - Day and night mode follow the headlights.
-- The car's own phone calls keep working, and music comes back after a call. (still beta)
+- The car's own phone calls keep working, and music comes back after a call. (still beta, please report odd behaviors or issues.)
 - The rear camera still takes over the screen when you reverse.
 - The head unit's firmware is not modified. One launcher is copied to its storage card (ISV folder) and switched on in Test Mode, and switching it off again undoes it.
 - Settings live in one text file on the SD card, which you can edit with Notepad.
