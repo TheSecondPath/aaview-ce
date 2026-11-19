@@ -3081,7 +3081,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int show)
             Sleep(500);                 /* an old copy may still be exiting */
         p = wcsrchr(exeDir, L'\\');
         if (p) *p = 0;
-        wsprintf(cl, L"logdir=%s %s", exeDir, cmdLine ? cmdLine : L"");
+        wsprintf(cl, L"logdir=\"%s\" %s", exeDir, cmdLine ? cmdLine : L"");
         if (!ok || !CreateProcess(TEMP_AAVIEW, cl, NULL, NULL, FALSE, 0, NULL, NULL, NULL, &pi))
             return 1;
         CloseHandle(pi.hThread);
@@ -3091,8 +3091,16 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmdLine, int show)
     p = wcsrchr(exeDir, L'\\');
     if (p) *p = 0;
     if (cmdLine && !_wcsnicmp(cmdLine, L"logdir=", 7)) {
-        WCHAR *e = wcschr(cmdLine + 7, L' ');
-        lstrcpyn(exeDir, cmdLine + 7, e && e - cmdLine - 7 < MAX_PATH ? (int)(e - cmdLine - 7) + 1 : MAX_PATH);
+        /* the folder may be quoted, since it can have spaces */
+        WCHAR *s = cmdLine + 7, *e;
+        BOOL   quoted = *s == L'"';
+
+        if (quoted)
+            s++;
+        e = wcschr(s, quoted ? L'"' : L' ');
+        lstrcpyn(exeDir, s, e && e - s < MAX_PATH ? (int)(e - s) + 1 : MAX_PATH);
+        if (e && quoted)
+            e = wcschr(e, L' ');
         cmdLine = e ? e + 1 : NULL;
     }
     wsprintf(g_logPath, L"%s\\aaview_log.txt", exeDir);
