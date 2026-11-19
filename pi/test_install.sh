@@ -99,18 +99,18 @@ for F in /usr/local/sbin/aa-ap /usr/local/sbin/stick-gadget /usr/local/lib/veloa
          /etc/systemd/journald.conf.d/60-veloaa.conf /etc/modules-load.d/usb-gadget.conf \
          /etc/modprobe.d/brcmfmac-roamoff.conf /etc/systemd/system/veloaa-ramfiles.service \
          /etc/systemd/system/stick-gadget.service /etc/systemd/system/aa-ap.service \
-         /etc/systemd/system/rmwork-aa.service /etc/aarecv /boot/firmware/veloaa.txt; do
+         /etc/systemd/system/veloaa-aa.service /etc/aarecv /boot/firmware/veloaa.txt; do
     there "$F"
 done
-for F in /usr/local/bin/vjob /usr/local/bin/rmwork_web.py /usr/local/bin/rmwork_input.py /etc/rmwork-web.pass \
-         /etc/systemd/system/rmwork-web.service /etc/systemd/system/rmwork-input.service /etc/aarecv/loglevel; do
+for F in /usr/local/bin/vjob /usr/local/bin/veloaa_web.py /usr/local/bin/veloaa_input.py /etc/veloaa-web.pass \
+         /etc/systemd/system/veloaa-web.service /etc/systemd/system/veloaa-input.service /etc/aarecv/loglevel; do
     not_there "$F"
 done
 check "aa-ap can be run" [ -x "$R/usr/local/sbin/aa-ap" ]
 check "aa-ap is the one here" cmp -s "$HERE/aa-ap" "$R/usr/local/sbin/aa-ap"
 check "aarecvd is the program given" cmp -s "$AARECVD" "$R/usr/local/lib/veloaa/aarecvd"
 check "aarecvd can be run" [ -x "$R/usr/local/lib/veloaa/aarecvd" ]
-check "rmwork-aa runs the Bluetooth start-up from where it was put" grep -q "^ExecStart=/usr/local/lib/veloaa/aarecvd --bt-only$" "$R/etc/systemd/system/rmwork-aa.service"
+check "veloaa-aa runs the Bluetooth start-up from where it was put" grep -q "^ExecStart=/usr/local/lib/veloaa/aarecvd --bt-only$" "$R/etc/systemd/system/veloaa-aa.service"
 check "aarecvd.service runs the session from where it was put" grep -q "^ExecStart=/usr/local/lib/veloaa/aarecvd \$AARECVD_ARGS$" "$R/etc/systemd/system/aarecvd.service"
 has /boot/firmware/config.txt "^dtoverlay=dwc2,dr_mode=peripheral$"
 check "the overlay is the file's last line, under [all]" [ "$(tail -n 2 "$R/boot/firmware/config.txt" | head -n 1)" = "[all]" ]
@@ -119,10 +119,10 @@ check "veloaa.txt has CRLF line ends" all_crlf "$R/boot/firmware/veloaa.txt"
 check "home Wi-Fi reads off" [ "$(setting home_wifi)" = off ]
 check "log level reads info" [ "$(setting log_level)" = info ]
 called "^systemctl daemon-reload$"
-called "^systemctl enable veloaa-ramfiles.service stick-gadget.service aa-ap.service rmwork-aa.service aarecvd.service$"
+called "^systemctl enable veloaa-ramfiles.service stick-gadget.service aa-ap.service veloaa-aa.service aarecvd.service$"
 called "^systemctl enable bluetooth.service$"
 not_called "^systemctl (start|stop|restart|reboot)"
-not_called "rmwork-web|rmwork-input"
+not_called "veloaa-web|veloaa-input"
 not_called "^raspi-config"
 said "^Home Wi-Fi: OFF"
 said "joins NO network"
@@ -158,7 +158,7 @@ check "the name reads back" [ "$(setting home_wifi_ssid)" = "My Net" ]
 check "veloaa.txt has CRLF line ends" all_crlf "$R/boot/firmware/veloaa.txt"
 said "^Home Wi-Fi: ON"
 not_said "WARNING"
-not_there /etc/systemd/system/rmwork-web.service
+not_there /etc/systemd/system/veloaa-web.service
 
 echo "== --keep-wifi: names with quotes, a #, an = and spaces at the ends read back exactly"
 for NAME in 'Bob'"'"'s "Net" #1' ' led = trail ' 'caf\303\251 5G'; do
@@ -206,36 +206,36 @@ echo "== dev build"
 new_case dev
 inst --dev
 said "^exit 0$"
-for F in /usr/local/bin/vjob /usr/local/bin/rmwork_web.py /usr/local/bin/rmwork_input.py /etc/rmwork-web.pass \
-         /etc/systemd/system/rmwork-web.service /etc/systemd/system/rmwork-input.service /etc/aarecv/loglevel \
+for F in /usr/local/bin/vjob /usr/local/bin/veloaa_web.py /usr/local/bin/veloaa_input.py /etc/veloaa-web.pass \
+         /etc/systemd/system/veloaa-web.service /etc/systemd/system/veloaa-input.service /etc/aarecv/loglevel \
          /usr/local/sbin/aa-ap /usr/local/lib/veloaa/aarecvd /mnt/stick; do
     there "$F"
 done
-called "^systemctl enable veloaa-ramfiles.service stick-gadget.service aa-ap.service rmwork-aa.service aarecvd.service rmwork-web.service rmwork-input.service$"
+called "^systemctl enable veloaa-ramfiles.service stick-gadget.service aa-ap.service veloaa-aa.service aarecvd.service veloaa-web.service veloaa-input.service$"
 check "home Wi-Fi reads on" [ "$(setting home_wifi)" = on ]
 check "the name reads back" [ "$(setting home_wifi_ssid)" = "My Net" ]
 has /boot/firmware/veloaa.txt "^#log_level=info"
 check "log level reads debug, from /etc/aarecv/loglevel" [ "$(setting log_level)" = debug ]
-check "the web password is 16 characters" [ "$(wc -c < "$R/etc/rmwork-web.pass")" = 16 ]
-check "the web password is for root only" [ "$(stat -c %a "$R/etc/rmwork-web.pass")" = 600 ]
-check "the web password is not shown" sh -c '! grep -qF "$(cat "$1")" "$2"' x "$R/etc/rmwork-web.pass" "$FAKE/out"
+check "the web password is 16 characters" [ "$(wc -c < "$R/etc/veloaa-web.pass")" = 16 ]
+check "the web password is for root only" [ "$(stat -c %a "$R/etc/veloaa-web.pass")" = 600 ]
+check "the web password is not shown" sh -c '! grep -qF "$(cat "$1")" "$2"' x "$R/etc/veloaa-web.pass" "$FAKE/out"
 said "setup_stick.sh"
-cp "$R/etc/rmwork-web.pass" "$FAKE/pass"
+cp "$R/etc/veloaa-web.pass" "$FAKE/pass"
 echo error > "$R/etc/aarecv/loglevel"
 inst --dev
-check "the web password is kept" cmp -s "$FAKE/pass" "$R/etc/rmwork-web.pass"
+check "the web password is kept" cmp -s "$FAKE/pass" "$R/etc/veloaa-web.pass"
 check "the log level file is kept" [ "$(cat "$R/etc/aarecv/loglevel")" = error ]
 
 echo "== dev build on a Pi whose units run the scripts from somewhere else: units kept, scripts updated there"
 new_case dev_paths
 mkdir -p "$R/etc/systemd/system"
-printf '[Service]\nUser=root\nExecStart=/usr/bin/python3 -u /home/pi/rmwork_web.py\n' > "$R/etc/systemd/system/rmwork-web.service"
+printf '[Service]\nUser=root\nExecStart=/usr/bin/python3 -u /home/pi/veloaa_web.py\n' > "$R/etc/systemd/system/veloaa-web.service"
 inst --dev
-said "KEPT        /etc/systemd/system/rmwork-web.service"
-there /home/pi/rmwork_web.py
-not_there /usr/local/bin/rmwork_web.py
-there /usr/local/bin/rmwork_input.py
-has /etc/systemd/system/rmwork-web.service "/home/pi/rmwork_web.py"
+said "KEPT        /etc/systemd/system/veloaa-web.service"
+there /home/pi/veloaa_web.py
+not_there /usr/local/bin/veloaa_web.py
+there /usr/local/bin/veloaa_input.py
+has /etc/systemd/system/veloaa-web.service "/home/pi/veloaa_web.py"
 
 echo "== a unit that differs is kept; --force replaces it and keeps the old one"
 new_case units
@@ -252,7 +252,7 @@ has /var/lib/veloaa/replaced/aa-ap.service "^# mine$"
 echo "== a unit an earlier install.sh put there (OLD_UNITS) is updated without --force"
 new_case old_unit
 mkdir -p "$R/etc/systemd/system"
-# The earlier rmwork-aa.service whose checksum is in install.sh's OLD_UNITS. It still waited for network-online.target.
+# The earlier veloaa-aa.service whose checksum is in install.sh's OLD_UNITS. It still waited for network-online.target.
 printf '%s\n' '[Unit]' \
     'Description=rmworkpi: Android Auto Bluetooth start-up (aarecvd --bt-only); the session is aarecvd.service' \
     'After=bluetooth.service stick-gadget.service network-online.target' 'Wants=bluetooth.service' '' \
@@ -260,11 +260,30 @@ printf '%s\n' '[Unit]' \
     '[Install]' 'WantedBy=multi-user.target' > "$R/etc/systemd/system/rmwork-aa.service"
 cp "$R/etc/systemd/system/rmwork-aa.service" "$FAKE/old-unit"
 inst
-said "updated     /etc/systemd/system/rmwork-aa.service [(]an older version"
-check "rmwork-aa.service is the new one" cmp -s "$HERE/rmwork-aa.service" "$R/etc/systemd/system/rmwork-aa.service"
+said "renamed     /etc/systemd/system/rmwork-aa.service to veloaa-aa.service [(]the old one"
+called "^systemctl disable rmwork-aa.service$"
+not_there /etc/systemd/system/rmwork-aa.service
+check "veloaa-aa.service is the new one" cmp -s "$HERE/veloaa-aa.service" "$R/etc/systemd/system/veloaa-aa.service"
 check "the old one is kept aside" cmp -s "$FAKE/old-unit" "$R/var/lib/veloaa/replaced/rmwork-aa.service"
 check "it no longer waits for network-online.target" \
-    sh -c "! grep -q '^After=.*network-online' '$R/etc/systemd/system/rmwork-aa.service'"
+    sh -c "! grep -q '^After=.*network-online' '$R/etc/systemd/system/veloaa-aa.service'"
+
+echo "== dev Pi with the old rmwork-* names: renamed, the web password kept"
+new_case old_names
+mkdir -p "$R/etc/systemd/system" "$R/usr/local/bin"
+printf '[Service]\nExecStart=/usr/bin/python3 /usr/local/bin/rmwork_web.py\n' \
+    > "$R/etc/systemd/system/rmwork-web.service"
+echo old > "$R/usr/local/bin/rmwork_web.py"
+printf 'abcdefgh12345678' > "$R/etc/rmwork-web.pass"
+inst --dev
+said "renamed     /etc/systemd/system/rmwork-web.service to veloaa-web.service [(]it had changes of its own[)]"
+called "^systemctl disable rmwork-web.service$"
+not_there /etc/systemd/system/rmwork-web.service
+not_there /usr/local/bin/rmwork_web.py
+there /var/lib/veloaa/replaced/rmwork-web.service
+there /etc/systemd/system/veloaa-web.service
+not_there /etc/rmwork-web.pass
+check "the web password is the old one" [ "$(cat "$R/etc/veloaa-web.pass")" = abcdefgh12345678 ]
 
 echo "== release build over a dev Pi: the dev services are left as they are"
 new_case over_dev
@@ -272,7 +291,7 @@ inst --dev
 : > "$FAKE/calls"
 inst
 said "left as they are"
-there /etc/systemd/system/rmwork-web.service
+there /etc/systemd/system/veloaa-web.service
 not_called "disable"
 check "home Wi-Fi still reads on" [ "$(setting home_wifi)" = on ]
 
@@ -401,7 +420,7 @@ bins "$FAKE/bin"; echo 0 > "$FAKE/uid"
 stick "$FAKE/bin"
 said "^exit 0$"
 check "the image is there, 1 MB" [ "$(wc -c < "$FAKE/stick.img")" = 1048576 ]
-called "^mkfs.vfat -F 32 -n RMWORK $FAKE/stick.img$"
+called "^mkfs.vfat -F 32 -n VELOSTERAA $FAKE/stick.img$"
 called "^mount -o loop $FAKE/stick.img "
 before "^mkfs.vfat" "^mount"
 before "^mount" "^umount"

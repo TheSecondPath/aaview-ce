@@ -1,7 +1,7 @@
 #!/bin/sh
 # make_release_stick.sh: the release build's stick, the flash drive the Pi shows the car.
 #
-#   sudo sh make_release_stick.sh BIN            write /srv/stick.img (2 GB FAT32, label RMWORK) and plug it in
+#   sudo sh make_release_stick.sh BIN            write /srv/stick.img (2 GB FAT32, label VELOSTERAA) and plug it in
 #   sudo sh make_release_stick.sh --replace BIN  the same when there is an image already: that one is kept as
 #                                                /srv/stick.img.old
 #   sh make_release_stick.sh --dir OUT BIN       only lay the files out in the folder OUT (no root needed), to look
@@ -154,7 +154,7 @@ else
     MOVED=2
 fi
 truncate -s "$SIZE" "$IMG"
-mkfs.vfat -F 32 -n RMWORK "$IMG" >/dev/null
+mkfs.vfat -F 32 -n VELOSTERAA "$IMG" >/dev/null
 mount -o loop "$IMG" "$MNT"
 cp -r "$STAGE"/. "$MNT"/
 sync

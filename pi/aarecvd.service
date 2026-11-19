@@ -1,6 +1,6 @@
 [Unit]
-Description=veloaa: Android Auto session (aarecvd, on aasdk); rmwork-aa does the Bluetooth start-up (--bt-only)
-After=veloaa-ramfiles.service stick-gadget.service aa-ap.service rmwork-aa.service
+Description=veloaa: Android Auto session (aarecvd, on aasdk); veloaa-aa does the Bluetooth start-up (--bt-only)
+After=veloaa-ramfiles.service stick-gadget.service aa-ap.service veloaa-aa.service
 
 [Service]
 # Wi-Fi power saving holds packets for 50-400 ms: off for the AA session's sake

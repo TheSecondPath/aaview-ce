@@ -1,7 +1,7 @@
 [Unit]
 Description=velosterAA: Android Auto Bluetooth start-up (aarecvd --bt-only); the session is aarecvd.service
 # Not network-online.target: away from home there is no network to wait for, and on the dev build, where
-# rmwork-web pulls that target in, it held Android Auto up for as long as NetworkManager waited.
+# veloaa-web pulls that target in, it held Android Auto up for as long as NetworkManager waited.
 After=bluetooth.service stick-gadget.service aa-ap.service
 Wants=bluetooth.service
 
