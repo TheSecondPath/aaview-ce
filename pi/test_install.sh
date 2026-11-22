@@ -305,6 +305,8 @@ inst --country US
 called "^raspi-config nonint do_wifi_country US$"
 said "Wi-Fi country set to US"
 said "not blocked"
+called "^rfkill unblock bluetooth$"
+said "Bluetooth unblocked"
 
 echo "== the image is not asked for twice"
 new_case todo
