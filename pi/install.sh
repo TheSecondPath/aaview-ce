@@ -288,6 +288,12 @@ if rfkill list wifi 2>/dev/null | grep -q 'Soft blocked: yes'; then
 else
     say "  not blocked"
 fi
+# Raspberry Pi OS also starts with Bluetooth blocked, and the phone can't find the Pi until it is unblocked.
+if rfkill unblock bluetooth 2>/dev/null; then
+    say "  Bluetooth unblocked"
+else
+    warn "could not unblock Bluetooth: sudo rfkill unblock bluetooth"
+fi
 
 say "== still to do"
 N=0
