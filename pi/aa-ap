@@ -22,6 +22,8 @@
 # The home Wi-Fi settings are applied when the service starts; the log level is looked at again every 30 s.
 #
 # The brcmfmac chip on the Zero 2 W allows one managed + one AP interface, on a single channel (iw list).
+# Without a home channel to follow, NetworkManager picks the AP's channel, on 5 GHz when the chip can use some 5 GHz
+# channel here (a Pi 3B+, 4 or 5) and on 2.4 GHz otherwise (the Zero 2 W has no 5 GHz).
 # WPA2 only, with PMF off: with PMF optional NetworkManager advertises WPA3/SAE transition mode, and the phone,
 # told "WPA2-Personal" by aarecvd, keeps scanning and never associates.
 # The AP's passphrase is generated once into /etc/aa-ap.psk (root only); aarecvd --bt-only sends it to the phone
@@ -141,7 +143,15 @@ release_others() {
 # the phone.
 sta_connected() { $IW dev wlan0 link 2>/dev/null | grep -q '^Connected'; }
 sta_channel() { $IW dev wlan0 info 2>/dev/null | awk '/channel/{print $2; exit}'; }
-ap_channel() { nmcli -g 802-11-wireless.channel con show $CON 2>/dev/null; }
+# The AP's channel as set in its profile, or where it is when NetworkManager picked it (0 in the profile).
+ap_channel() {
+    A=$(nmcli -g 802-11-wireless.channel con show $CON 2>/dev/null)
+    if [ -z "$A" ] || [ "$A" = 0 ]; then A=$($IW dev uap0 info 2>/dev/null | awk '/channel/{print $2; exit}'); fi
+    echo "$A"
+}
+band_of() { if [ "$1" -gt 14 ] 2>/dev/null; then echo a; else echo bg; fi; }
+# A 5 GHz channel counts only if iw lists it with nothing after it: no "disabled", "no IR" or "radar".
+has_5ghz() { $IW list 2>/dev/null | grep -Eq '^[[:space:]]*\* 5[0-9]{3}(\.[0-9])? MHz \[[0-9]+\] \([0-9.]+ dBm\)[[:space:]]*$'; }
 phone_here() { $IW dev uap0 station dump 2>/dev/null | grep -q 'authorized:.*yes'; }
 session_up() { ss -Htn state established src $ADDR 2>/dev/null | grep -q .; }      # an open TCP connection to the AP's address is aarecvd's session
 
@@ -177,7 +187,9 @@ up() {
         sta_connected && CH=$(sta_channel)
         [ -n "$CH" ] || CH=$(cat $STATE/home_channel 2>/dev/null)
     fi
-    CH=${CH:-${AA_AP_CHANNEL:-6}}
+    CH=${CH:-${AA_AP_CHANNEL:-}}
+    # No channel to follow: 0 leaves the choice to NetworkManager, within the band.
+    if [ -n "$CH" ]; then BAND=$(band_of "$CH"); elif has_5ghz; then BAND=a; CH=0; else BAND=bg; CH=0; fi
     if ! $IW dev uap0 info >/dev/null 2>&1; then
         if ! $IW dev wlan0 interface add uap0 type __ap; then
             say 3 "could not create the AP interface uap0 on wlan0 (is Wi-Fi blocked? rfkill list; the Wi-Fi country must be set once: sudo raspi-config nonint do_wifi_country <XX>)"
@@ -191,13 +203,13 @@ up() {
     sleep 1
     if ! nmcli -t con show | grep -q "^$CON:"; then
         nmcli con add type wifi ifname uap0 con-name $CON autoconnect no ssid "$SSID" \
-            802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel "$CH" \
+            802-11-wireless.mode ap 802-11-wireless.band "$BAND" 802-11-wireless.channel "$CH" \
             802-11-wireless.powersave 2 \
             ipv4.method shared ipv4.addresses $ADDR/24 ipv6.method disabled \
             wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$PSK" wifi-sec.proto rsn wifi-sec.pairwise ccmp wifi-sec.group ccmp \
             wifi-sec.pmf disable >/dev/null
     else
-        nmcli con modify $CON 802-11-wireless.channel "$CH" wifi-sec.psk "$PSK" wifi-sec.pmf disable
+        nmcli con modify $CON 802-11-wireless.band "$BAND" 802-11-wireless.channel "$CH" wifi-sec.psk "$PSK" wifi-sec.pmf disable
     fi
     firewall
     if ! nmcli con up $CON >/dev/null; then
@@ -207,6 +219,9 @@ up() {
     fi
     BSSID=$(cat $SYSNET/uap0/address)
     (umask 077; printf 'ssid=%s\nkey=%s\nbssid=%s\nip=%s\n' "$SSID" "$PSK" "$BSSID" "$ADDR" > $CONF)
+    if [ "$CH" = 0 ]; then
+        CH="$($IW dev uap0 info 2>/dev/null | awk '/channel/{print $2; exit}') (picked by NetworkManager)"
+    fi
     say 6 "AP $SSID up on channel $CH, $BSSID, $ADDR"
 }
 
@@ -362,7 +377,7 @@ case "${1:-status}" in
                     miss=$((miss + 1))
                     if [ $miss -ge 2 ]; then
                         say 6 "home Wi-Fi on channel $S for a minute (AP on $A): moving the AP"
-                        nmcli con down $CON >/dev/null 2>&1; nmcli con modify $CON 802-11-wireless.channel "$S"; nmcli con up $CON >/dev/null
+                        nmcli con down $CON >/dev/null 2>&1; nmcli con modify $CON 802-11-wireless.band "$(band_of "$S")" 802-11-wireless.channel "$S"; nmcli con up $CON >/dev/null
                         miss=0
                     fi
                 else

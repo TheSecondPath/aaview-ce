@@ -289,8 +289,9 @@ through a home network. Log: `journalctl -u aa-ap`.
 `aa-ap watch` reads the settings when the service starts:
 
 - `home_wifi=off` (the default, also with no file): `wlan0` is taken away from NetworkManager for good
-  (`nmcli device set wlan0 managed no`). The Pi joins no network, never scans, and the access point stays on
-  channel 6. The rest of this section does not apply.
+  (`nmcli device set wlan0 managed no`). The Pi joins no network, never scans, and NetworkManager picks
+  the access point's channel, on 5 GHz if the Pi's Wi-Fi can use it there and on 2.4 GHz otherwise (the Zero 2 W only
+  has 2.4 GHz). The rest of this section does not apply.
 - `home_wifi=on` with `home_wifi_ssid`: the Pi joins that network through its saved NetworkManager profile. Every
   other saved Wi-Fi profile has autoconnect switched off until the next reboot (`nmcli con modify --temporary`,
   which does not rewrite the saved files), so the Pi never wanders onto another known network. If no saved profile
