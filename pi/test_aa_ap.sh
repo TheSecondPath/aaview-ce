@@ -56,6 +56,7 @@ iw)
     "dev wlan0 info") printf 'Interface wlan0\n\tchannel %s (2462 MHz), width: 20 MHz\n' "$(cat "$FAKE/sta_channel" 2>/dev/null || echo 1)" ;;
     "dev uap0 station dump") [ -f "$FAKE/phone" ] && printf 'Station aa:bb:cc:dd:ee:ff (on uap0)\n\tauthorized:\tyes\n' ;;
     "dev wlan0 scan freq 2437") cat "$FAKE/scan" 2>/dev/null ;;
+    "list") cat "$FAKE/iwlist" 2>/dev/null ;;
     esac ;;
 ss) cat "$FAKE/ss" 2>/dev/null ;;
 esac
@@ -112,9 +113,9 @@ not_called "con modify --temporary"
 not_called "scan"
 called "iw dev wlan0 interface add uap0 type __ap"
 count "^iw dev wlan0 interface add uap0" 2 calls
-count "^nmcli con add type wifi ifname uap0 .*channel 6 " 1 calls
+count "^nmcli con add type wifi ifname uap0 .*band bg 802-11-wireless.channel 0 " 1 calls
 said "^<6>settings: home Wi-Fi off .*log level info"
-said "^<6>AP VeloAA up on channel 6"
+said "^<6>AP VeloAA up on channel 6 \(picked by NetworkManager\)"
 not_said "^<4>"                                             # the missing file is aarecvd's to report
 said "^exit 0$"                                             # the stand-in sleep ended the loop
 if grep -q "^key=................\$" "$FAKE/aarecv.conf" && grep -q "^ip=10.42.0.1\$" "$FAKE/aarecv.conf"; then ok "aarecv.conf written"; else bad "aarecv.conf"; fi
@@ -189,7 +190,7 @@ not_called "con modify --temporary u-wired"
 called "nmcli device set wlan0 managed yes"
 not_called "set wlan0 managed no"
 not_called "con up u-home"                                  # connected: nothing to ask for
-called "nmcli con modify aa-ap 802-11-wireless.channel 11 wifi-sec.psk $(cat "$FAKE/psk") wifi-sec.pmf disable"
+called "nmcli con modify aa-ap 802-11-wireless.band bg 802-11-wireless.channel 11 wifi-sec.psk $(cat "$FAKE/psk") wifi-sec.pmf disable"
 if [ "$(cat "$FAKE/held")" = u-other ]; then ok "held list"; else bad "held list"; fi
 VERB=down run
 called "nmcli con modify --temporary u-other connection.autoconnect yes"
@@ -291,6 +292,33 @@ new_case devlevel2
 echo error > "$FAKE/loglevel"; printf 'log_level=info\n' > "$FAKE/veloaa.txt"
 run
 said "^<6>settings: home Wi-Fi off .*log level info"
+
+echo "== home Wi-Fi off, the chip can use 5 GHz: NetworkManager picks a 5 GHz channel"
+new_case five; rm "$FAKE/have_ap"
+printf '\t\tFrequencies:\n\t\t\t* 2437.0 MHz [6] (20.0 dBm)\n\t\t\t* 5180.0 MHz [36] (20.0 dBm)\n' > "$FAKE/iwlist"
+run
+count "^nmcli con add type wifi ifname uap0 .*band a 802-11-wireless.channel 0 " 1 calls
+said "^<6>AP VeloAA up on channel .* \(picked by NetworkManager\)"
+
+echo "== home Wi-Fi off, 5 GHz listed but not usable here: NetworkManager picks a 2.4 GHz channel"
+for flag in "(no IR)" "(disabled)"; do
+    new_case "five_$(echo "$flag" | tr -dc a-z)"; rm "$FAKE/have_ap"
+    case $flag in
+        *IR*) printf '\t\t\t* 5180.0 MHz [36] (20.0 dBm) %s\n' "$flag" > "$FAKE/iwlist" ;;
+        *) printf '\t\t\t* 5180 MHz [36] %s\n' "$flag" > "$FAKE/iwlist" ;;
+    esac
+    run
+    count "^nmcli con add type wifi ifname uap0 .*band bg 802-11-wireless.channel 0 " 1 calls
+done
+
+echo "== home on 5 GHz: the AP follows it there with the band changed too"
+new_case follow5
+printf 'home_wifi=on\nhome_wifi_ssid=My Net\n' > "$FAKE/veloaa.txt"
+touch "$FAKE/sta_connected"; echo 36 > "$FAKE/sta_channel"
+ROUNDS=4 run
+called "nmcli con modify aa-ap 802-11-wireless.band a 802-11-wireless.channel 36 wifi-sec.psk $(cat "$FAKE/psk") wifi-sec.pmf disable"
+said "^<6>home Wi-Fi on channel 36 for a minute \(AP on 6\): moving the AP"
+called "nmcli con modify aa-ap 802-11-wireless.band a 802-11-wireless.channel 36"
 
 echo "== Wi-Fi blocked: said as an error, exit 1 (systemd starts it again)"
 new_case blocked; touch "$FAKE/blocked"
