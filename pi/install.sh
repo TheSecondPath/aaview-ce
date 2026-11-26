@@ -104,6 +104,7 @@ put() {
 # md5sums of unit files that earlier versions of this script installed. A unit on the Pi that matches one of these
 # is ours, not somebody's own change, so it gets updated. When a unit file here changes, add the old one's checksum.
 OLD_UNITS="
+b595bfa2a5d53923693936d390795c73 veloaa-aa.service
 4ab23718e7270123e7f10b0a001e6613 rmwork-aa.service
 83e8c6af212d2553332bfb824cd50202 aa-ap.service
 f93c3451120951c17d9d4dddbc1c1a6c rmwork-aa.service

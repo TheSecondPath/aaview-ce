@@ -110,6 +110,7 @@ check "aa-ap can be run" [ -x "$R/usr/local/sbin/aa-ap" ]
 check "aa-ap is the one here" cmp -s "$HERE/aa-ap" "$R/usr/local/sbin/aa-ap"
 check "aarecvd is the program given" cmp -s "$AARECVD" "$R/usr/local/lib/veloaa/aarecvd"
 check "aarecvd can be run" [ -x "$R/usr/local/lib/veloaa/aarecvd" ]
+check "veloaa-aa unblocks Bluetooth first" grep -q "^ExecStartPre=-/usr/sbin/rfkill unblock bluetooth$" "$R/etc/systemd/system/veloaa-aa.service"
 check "veloaa-aa runs the Bluetooth start-up from where it was put" grep -q "^ExecStart=/usr/local/lib/veloaa/aarecvd --bt-only$" "$R/etc/systemd/system/veloaa-aa.service"
 check "aarecvd.service runs the session from where it was put" grep -q "^ExecStart=/usr/local/lib/veloaa/aarecvd \$AARECVD_ARGS$" "$R/etc/systemd/system/aarecvd.service"
 has /boot/firmware/config.txt "^dtoverlay=dwc2,dr_mode=peripheral$"
@@ -267,6 +268,16 @@ check "veloaa-aa.service is the new one" cmp -s "$HERE/veloaa-aa.service" "$R/et
 check "the old one is kept aside" cmp -s "$FAKE/old-unit" "$R/var/lib/veloaa/replaced/rmwork-aa.service"
 check "it no longer waits for network-online.target" \
     sh -c "! grep -q '^After=.*network-online' '$R/etc/systemd/system/veloaa-aa.service'"
+
+echo "== the earlier veloaa-aa.service (no Bluetooth unblock) is updated without --force"
+new_case old_veloaa_aa
+mkdir -p "$R/etc/systemd/system"
+# The earlier one is this one without the unblock (its checksum is in OLD_UNITS).
+sed '/^# Raspberry Pi OS blocks/,/^ExecStartPre=/d' "$HERE/veloaa-aa.service" > "$R/etc/systemd/system/veloaa-aa.service"
+cp "$R/etc/systemd/system/veloaa-aa.service" "$FAKE/old-unit"
+inst
+check "veloaa-aa.service is the new one" cmp -s "$HERE/veloaa-aa.service" "$R/etc/systemd/system/veloaa-aa.service"
+check "the old one is kept aside" cmp -s "$FAKE/old-unit" "$R/var/lib/veloaa/replaced/veloaa-aa.service"
 
 echo "== dev Pi with the old rmwork-* names: renamed, the web password kept"
 new_case old_names
