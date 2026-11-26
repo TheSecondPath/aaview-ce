@@ -6,6 +6,9 @@ After=bluetooth.service stick-gadget.service aa-ap.service
 Wants=bluetooth.service
 
 [Service]
+# Raspberry Pi OS blocks Bluetooth on a model it has not seen before, e.g. when the SD card is moved to
+# another Pi. "-": the start-up goes on if rfkill fails.
+ExecStartPre=-/usr/sbin/rfkill unblock bluetooth
 ExecStart=/usr/local/lib/veloaa/aarecvd --bt-only
 Restart=always
 RestartSec=5
