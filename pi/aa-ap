@@ -7,7 +7,8 @@
 #   aa-ap watch     run by aa-ap.service: reads the settings, starts the AP and keeps it up. With home Wi-Fi on it
 #                   also keeps the AP on wlan0's channel (the chip allows one channel for both) and keeps wlan0 from
 #                   scanning for home while the phone is connected away from it, and from trying for home while a
-#                   phone is joining the AP
+#                   phone is joining the AP. With home connected and a phone on the AP, the home link's background
+#                   scans are switched off until the phone has gone
 #   aa-ap status
 #
 # The settings come from /boot/firmware/veloaa.txt, read through 'aarecvd --show-settings --shell' when "watch"
@@ -31,6 +32,7 @@
 set -u
 IW=${AA_AP_IW:-/usr/sbin/iw}
 NFT=${AA_AP_NFT:-/usr/sbin/nft}
+WPA=${AA_AP_WPA_CLI:-/usr/sbin/wpa_cli}
 CON=aa-ap
 SSID=${AA_AP_SSID:-VeloAA}
 ADDR=10.42.0.1
@@ -153,6 +155,36 @@ band_of() { if [ "$1" -gt 14 ] 2>/dev/null; then echo a; else echo bg; fi; }
 # A 5 GHz channel counts only if iw lists it with nothing after it: no "disabled", "no IR" or "radar".
 has_5ghz() { $IW list 2>/dev/null | grep -Eq '^[[:space:]]*\* 5[0-9]{3}(\.[0-9])? MHz \[[0-9]+\] \([0-9.]+ dBm\)[[:space:]]*$'; }
 phone_here() { $IW dev uap0 station dump 2>/dev/null | grep -q 'authorized:.*yes'; }
+# wpa_supplicant scans for a better access point every 30 s while the home signal is below -70 dBm (NetworkManager's
+# bgscan "simple:30:-70:86400"; a car in the driveway is usually below that). Each scan takes the one radio off the
+# AP's channel for about 4 s and the phone's audio stalls in it. So while a phone is on the AP the home network's
+# bgscan is set empty in wpa_supplicant, which takes effect at once and without reconnecting, and is put back when
+# the phone has been gone for a minute (a phone that is still joining is not on the AP yet). NetworkManager sets it afresh whenever it connects again anyway. BGSCAN is what was switched
+# off (empty: nothing is).
+BGSCAN=
+bgscan_get() { $WPA -i wlan0 get_network "$1" bgscan 2>/dev/null; }
+bgscan_off() {
+    [ -x "$WPA" ] || command -v "$WPA" >/dev/null 2>&1 || return 0
+    I=$($WPA -i wlan0 status 2>/dev/null | sed -n 's/^id=//p')
+    [ -n "$I" ] || return 0
+    B=$(bgscan_get "$I")
+    case $B in ''|'""'|FAIL*) return 0 ;; esac          # none set (e.g. the profile is locked to one BSSID)
+    if [ "$($WPA -i wlan0 set_network "$I" bgscan '""' 2>/dev/null)" = OK ]; then
+        BGSCAN=$B
+        say 6 "a phone is on the AP: background scans for home switched off (they stall its audio)"
+    else
+        say 4 "warning: could not switch off background scans for home (wpa_cli set_network $I bgscan)"
+    fi
+}
+bgscan_on() {
+    [ -n "$BGSCAN" ] || return 0
+    I=$($WPA -i wlan0 status 2>/dev/null | sed -n 's/^id=//p')
+    if [ -n "$I" ] && [ "$(bgscan_get "$I")" = '""' ]; then
+        $WPA -i wlan0 set_network "$I" bgscan "$BGSCAN" >/dev/null 2>&1
+    fi
+    BGSCAN=
+    say 6 "no phone on the AP: background scans for home back on"
+}
 session_up() { ss -Htn state established src $ADDR 2>/dev/null | grep -q .; }      # an open TCP connection to the AP's address is aarecvd's session
 
 # One look on the AP's own channel for the home network named in the settings, as iw prints names (HOME_SSID_IW).
@@ -286,7 +318,7 @@ case "${1:-status}" in
             ip link set wlan0 up 2>/dev/null
         fi
         up
-        miss=0; away=0; gone=0; seen=0; quiet=0; hold=0; idle=0
+        miss=0; away=0; gone=0; seen=0; quiet=0; hold=0; idle=0; nophone=0
         # NetworkManager stops retrying a profile after a few failed tries in a row, and once it has given up it
         # does not try again on its own however often wlan0 is handed back. An explicit "con up" is not subject
         # to that, so it is asked for on every hand-back, and every 2 minutes while home is down and no phone is
@@ -342,7 +374,9 @@ case "${1:-status}" in
             fi
             if [ -n "$JOIN" ]; then
                 JOIN=
-                if [ "$HOME_WIFI" = on ] && [ $quiet = 0 ] && ! sta_connected; then
+                if [ "$HOME_WIFI" = on ] && sta_connected; then
+                    bgscan_off; nophone=0   # as it starts joining, not up to 30 s later
+                elif [ "$HOME_WIFI" = on ] && [ $quiet = 0 ] && ! sta_connected; then
                     say 6 "a phone is joining the AP and home Wi-Fi is not connected: wlan0 stops trying for home"
                     nmcli device set wlan0 managed no
                     # The quiet rules below give it back: the phone gone for a minute, or home in sight. No
@@ -369,6 +403,12 @@ case "${1:-status}" in
                 fi
             elif sta_connected; then
                 away=0; hold=0; idle=0
+                if phone_here; then
+                    bgscan_off; nophone=0
+                else
+                    nophone=$((nophone + 1))
+                    [ $nophone -ge 2 ] && bgscan_on
+                fi
                 S=$(sta_channel); A=$(ap_channel)
                 if [ -n "$S" ] && [ "$S" != "$(cat $STATE/home_channel 2>/dev/null)" ]; then
                     mkdir -p $STATE && echo "$S" > $STATE/home_channel

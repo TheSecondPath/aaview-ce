@@ -59,11 +59,20 @@ iw)
     "list") cat "$FAKE/iwlist" 2>/dev/null ;;
     esac ;;
 ss) cat "$FAKE/ss" 2>/dev/null ;;
+wpa_cli)
+    case "$3 $4 $5" in
+    "status  ") [ -f "$FAKE/sta_connected" ] && printf 'bssid=00:11:22:33:44:55
+id=0
+wpa_state=COMPLETED
+' ;;
+    "get_network 0 bgscan") if [ -f "$FAKE/bgscan" ]; then cat "$FAKE/bgscan"; else echo FAIL; fi ;;
+    "set_network 0 bgscan") [ -f "$FAKE/wpa_fails" ] && { echo FAIL; exit 0; }; printf '%s' "$6" > "$FAKE/bgscan"; echo OK ;;
+    esac ;;
 esac
 exit 0
 EOF
 chmod +x "$T/bin/fake"
-for c in nmcli iw ip nft ss sleep; do cp "$T/bin/fake" "$T/bin/$c"; done
+for c in nmcli iw ip nft ss sleep wpa_cli; do cp "$T/bin/fake" "$T/bin/$c"; done
 
 # new_case <name>: a fresh pretend Pi with three saved Wi-Fi profiles: home ("My Net"), another network and the AP.
 new_case() {
@@ -87,7 +96,7 @@ new_case() {
 # run [VAR=value ...]: run aa-ap watch for $ROUNDS rounds, with its output in $FAKE/out
 run() {
     env PATH="$T/bin:$PATH" FAKE="$FAKE" ROUNDS="${ROUNDS:-1}" JOURNAL_STREAM=8:1 \
-        AA_AP_IW=iw AA_AP_NFT=nft AA_AP_PSKF="$FAKE/psk" AA_AP_CONF="$FAKE/aarecv.conf" AA_AP_STATE="$FAKE/state" \
+        AA_AP_IW=iw AA_AP_NFT=nft AA_AP_WPA_CLI=wpa_cli AA_AP_PSKF="$FAKE/psk" AA_AP_CONF="$FAKE/aarecv.conf" AA_AP_STATE="$FAKE/state" \
         AA_AP_HELD="$FAKE/held" AA_AP_SYSNET="$FAKE/sys" AA_AP_LOOP=77 AA_AP_JOINING="$FAKE/joining" \
         VELOAA_AARECVD="$AARECVD" \
         VELOAA_SETTINGS="$FAKE/veloaa.txt" VELOAA_LOGLEVEL="$FAKE/loglevel" "$@" \
@@ -260,6 +269,51 @@ echo 'touch "$FAKE/joining"; touch "$FAKE/phone"' > "$FAKE/round.2"
 ROUNDS=4 run
 not_said "a phone is joining"
 not_called "set wlan0 managed no"
+
+echo "== home connected, a phone joins: background scans for home off at once, and back on when it has gone"
+new_case bgscan
+printf 'home_wifi=on
+home_wifi_ssid=My Net
+' > "$FAKE/veloaa.txt"
+touch "$FAKE/sta_connected"; echo 6 > "$FAKE/sta_channel"
+printf '"simple:30:-70:86400"' > "$FAKE/bgscan"
+echo 'touch "$FAKE/joining"' > "$FAKE/round.2"
+cat > "$FAKE/round.3" <<'EOF'
+touch "$FAKE/phone"
+[ "$(cat "$FAKE/bgscan")" = '""' ] && touch "$FAKE/off_at_join"
+EOF
+echo '[ "$(cat "$FAKE/bgscan")" = '"'"'""'"'"' ] && touch "$FAKE/off_with_phone"; rm -f "$FAKE/phone"' > "$FAKE/round.5"
+ROUNDS=6 run
+if [ -f "$FAKE/off_at_join" ]; then ok "off as the phone starts joining"; else bad "not off as the phone joined"; fi
+if [ -f "$FAKE/off_with_phone" ]; then ok "stays off while the phone is on the AP"; else bad "not off with the phone on the AP"; fi
+count '^wpa_cli -i wlan0 set_network 0 bgscan ""$' 1 calls
+said "^<6>a phone is on the AP: background scans for home switched off"
+said "^<6>no phone on the AP: background scans for home back on"
+if [ "$(cat "$FAKE/bgscan")" = '"simple:30:-70:86400"' ]; then ok "put back as it was"; else bad "bgscan now: $(cat "$FAKE/bgscan")"; fi
+not_called "set wlan0 managed no"                           # home is connected: wlan0 stays with NetworkManager
+count "^<6>a phone is on the AP|^<6>no phone on the AP" 2 out
+
+echo "== ... none set (the profile is locked to one access point): nothing to switch, nothing said"
+new_case bgscan_none
+printf 'home_wifi=on
+home_wifi_ssid=My Net
+' > "$FAKE/veloaa.txt"
+touch "$FAKE/sta_connected" "$FAKE/phone"; echo 6 > "$FAKE/sta_channel"
+ROUNDS=3 run
+not_called "set_network"
+not_said "background scans"
+
+echo "== ... wpa_cli refuses: a warning, and it keeps running"
+new_case bgscan_fails
+printf 'home_wifi=on
+home_wifi_ssid=My Net
+' > "$FAKE/veloaa.txt"
+touch "$FAKE/sta_connected" "$FAKE/phone" "$FAKE/wpa_fails"; echo 6 > "$FAKE/sta_channel"
+printf '"simple:30:-70:86400"' > "$FAKE/bgscan"
+ROUNDS=2 run
+said "^<4>warning: could not switch off background scans for home"
+not_said "back on"
+said "^exit 0$"
 
 echo "== a name with spaces at the ends, a backslash and non-ASCII letters is matched as iw prints it"
 new_case odd_name
